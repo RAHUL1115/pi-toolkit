@@ -2,10 +2,12 @@
 
 Local Pi extension combining:
 
-- workflow settings and grouped built-in tool rendering
+- workflow settings and grouped built-in tool rendering (`Ctrl+O`: collapsed → preview → full); adjacent tool-only turns merge until non-empty text or thinking appears
 - `$skill` autocomplete and loading
 - toggleable `Ctrl+Backspace` previous-word deletion for VS Code and Windows Terminal
 - observability footer, dashboard, TPS reporting, and session history
+
+Grouped blocks use the same left margin as user/thinking content. Collapsed groups always show each tool target and status without output bodies; `Ctrl+O` reveals preview and full output.
 
 ## Install
 

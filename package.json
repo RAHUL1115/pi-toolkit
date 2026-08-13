@@ -7,6 +7,9 @@
     "pi-package",
     "pi-extension"
   ],
+  "scripts": {
+    "test": "node test/grouped-tools.mjs"
+  },
   "dependencies": {
     "proper-lockfile": "4.1.2"
   },

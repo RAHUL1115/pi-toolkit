@@ -1,12 +1,25 @@
 import assert from "node:assert/strict";
-import { dirname } from "node:path";
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
+const extensionRoot = mkdtempSync(join(dirname(fileURLToPath(import.meta.url)), ".pi-toolkit-test-"));
+const cleanup = () => rmSync(extensionRoot, { recursive: true, force: true });
+process.on("exit", cleanup);
+cpSync(join(sourceRoot, "index.ts"), join(extensionRoot, "index.ts"));
+cpSync(join(sourceRoot, "pi-toolkit-lib"), join(extensionRoot, "pi-toolkit-lib"), { recursive: true });
+writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
+	compactTools: true,
+	ctrlBackspace: true,
+	dollarSkills: true,
+}, null, 2));
 
 const codingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
 const { loadExtensions } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
 const { initTheme } = await import(new URL("./modes/interactive/theme/theme.js", codingAgentEntry));
-const extensionPath = fileURLToPath(new URL("../index.ts", import.meta.url));
-const extensionRoot = dirname(extensionPath);
+const { ToolExecutionComponent } = await import(new URL("./modes/interactive/components/tool-execution.js", codingAgentEntry));
+const extensionPath = join(extensionRoot, "index.ts");
 
 initTheme("dark");
 const { extensions, errors } = await loadExtensions([extensionPath], extensionRoot);
@@ -234,4 +247,25 @@ const replayFollower = read.renderCall({ path: "a.ts" }, theme, context("replay-
 assert.match(replayLeader.render(120).join("\n"), /tools 1 find · 1 read/);
 assert.equal(replayFollower.render(120).join("").trim(), "");
 
+await ends[0]({ message: { role: "user", content: "real component boundary" } });
+const realArgs = { command: "single real component" };
+const realComponent = new ToolExecutionComponent(
+	"bash",
+	"real-bash",
+	realArgs,
+	{},
+	bash,
+	{ requestRender() {} },
+	extensionRoot,
+);
+for (let index = 0; index < 10; index++) realComponent.updateArgs(realArgs);
+realComponent.updateResult({
+	content: [{ type: "text", text: "Command exited with code 1" }],
+	isError: true,
+});
+const realRendered = realComponent.render(120).join("\n");
+assert.equal(realRendered.match(/single real component/g)?.length ?? 0, 1, realRendered);
+assert.equal(realRendered.match(/failed/g)?.length ?? 0, 1, realRendered);
+
+cleanup();
 console.log("grouped tool renderer verified");

@@ -429,7 +429,7 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolCycle {
 				if (group.calls[0] === call) group.invalidate = context.invalidate;
 				syncShells(group);
 				paint(group, theme);
-				group.invalidate?.();
+				if (group.calls[0] !== call) group.invalidate?.();
 				return shell;
 			},
 			renderResult(result, { isPartial }, theme, context) {

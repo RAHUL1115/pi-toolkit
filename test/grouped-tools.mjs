@@ -26,14 +26,31 @@ const { extensions, errors } = await loadExtensions([extensionPath], extensionRo
 assert.deepEqual(errors, []);
 
 const extension = extensions[0];
+assert(extension.commands.has("ptk-obs"));
+assert(extension.commands.has("ptk-settings"));
+assert(!extension.commands.has("ptk"));
+assert(!extension.commands.has("ptk-workflow-settings"));
+const transformMarkdown = extension.markdownTransformer;
+assert.equal(typeof transformMarkdown, "function");
+const markdownContext = { isStreaming: false, availableWidth: 120 };
+assert.equal(transformMarkdown("hello", { ...markdownContext, messageType: "user" }), "› hello");
+assert.equal(transformMarkdown("thinking", { ...markdownContext, messageType: "assistant-thinking" }), "◦ thinking");
+assert.equal(transformMarkdown("answer", { ...markdownContext, messageType: "assistant" }), "• answer");
+assert.equal(transformMarkdown("• literal bullet", { ...markdownContext, messageType: "assistant" }), "• • literal bullet");
+assert.equal(transformMarkdown("  - item", { ...markdownContext, messageType: "assistant" }), "•\n\n  - item");
+assert.equal(transformMarkdown("Heading\n---", { ...markdownContext, messageType: "assistant" }), "•\n\nHeading\n---");
 const starts = extension.handlers.get("session_start");
 const updates = extension.handlers.get("message_update");
 const ends = extension.handlers.get("message_end");
 let editorFactory;
 let expanded = false;
+const notifications = [];
+const widgets = new Map();
 const ui = {
 	getToolsExpanded: () => expanded,
 	setToolsExpanded: (value) => { expanded = value; },
+	notify: (message) => { notifications.push(message); },
+	setWidget: (key, content) => { if (content === undefined) widgets.delete(key); else widgets.set(key, content); },
 	getEditorComponent: () => undefined,
 	setEditorComponent: (factory) => { editorFactory = factory; },
 };
@@ -42,13 +59,13 @@ await starts[1]({}, { ui, sessionManager });
 await starts[2]({}, { mode: "tui", ui });
 
 const toolCall = (id, name, args) => ({ type: "toolCall", id, name, arguments: args });
-const output = (prefix, count = 20) => Array.from(
+const output = (prefix, count = 30) => Array.from(
 	{ length: count },
 	(_, index) => `${prefix} line ${String(index + 1).padStart(2, "0")}`,
 ).join("\n");
 
 const readArgs = { path: "demo.txt" };
-const bashArgs = { command: "generate output" };
+const bashArgs = { command: "generate output with a deliberately long set of arguments that wraps onto another visual line" };
 const writeArgs = { path: "written.txt", content: output("write") };
 await updates[1]({ message: { role: "assistant", content: [
 	toolCall("read-1", "read", readArgs),
@@ -56,7 +73,12 @@ await updates[1]({ message: { role: "assistant", content: [
 	toolCall("write-1", "write", writeArgs),
 ] } });
 
-const theme = { fg: (_color, text) => text, bold: (text) => text };
+const foregrounds = [];
+const theme = {
+	fg: (color, text) => { foregrounds.push({ color, text }); return text; },
+	bg: (_color, text) => text,
+	bold: (text) => text,
+};
 const states = { "read-1": {}, "bash-1": {}, "write-1": {} };
 const invalidations = { "read-1": 0, "bash-1": 0, "write-1": 0 };
 const context = (id, args, lastComponent) => ({
@@ -76,12 +98,16 @@ const context = (id, args, lastComponent) => ({
 const definition = (name) => extension.tools.get(name).definition;
 const read = definition("read");
 const bash = definition("bash");
+const edit = definition("edit");
 const write = definition("write");
 const find = definition("find");
 const leader = read.renderCall(readArgs, theme, context("read-1", readArgs));
 const bashFollower = bash.renderCall(bashArgs, theme, context("bash-1", bashArgs));
 const writeFollower = write.renderCall(writeArgs, theme, context("write-1", writeArgs));
 const rendered = () => leader.render(120).map((line) => line.trimEnd()).join("\n");
+const leaderBlocks = () => leader.children[0]?.children ?? [];
+const leaderHasBackground = () => leaderBlocks()[0]?.hasBackground ?? false;
+const individualBackgrounds = () => leaderBlocks().filter((block) => block.hasBackground);
 
 assert.match(rendered(), /read demo\.txt/);
 assert.match(rendered(), /bash generate output/);
@@ -106,37 +132,116 @@ assert.match(rendered(), /read demo\.txt/);
 assert.match(rendered(), /bash generate output/);
 assert.match(rendered(), /write written\.txt/);
 assert.doesNotMatch(rendered(), /read line 01/);
+assert.equal(leaderHasBackground(), false);
+
+expanded = true;
+read.renderCall(readArgs, theme, context("read-1", readArgs, leader));
+assert.match(rendered(), /read line 11/);
+assert.equal(individualBackgrounds().length, 3);
+expanded = false;
+read.renderCall(readArgs, theme, context("read-1", readArgs, leader));
+assert.doesNotMatch(rendered(), /read line 01/);
+assert.equal(leaderHasBackground(), false);
 
 const editor = editorFactory({ requestRender() {} }, {}, {
 	matches: (data, action) => data === "\x0f" && action === "app.tools.expand",
 });
-editor.handleInput("\x0f");
+const longPaste = Array.from({ length: 11 }, (_, index) => `editable line ${index + 1}`).join("\n");
+const pasteInput = `\x1b[200~${longPaste}\x1b[201~`;
+editor.handleInput(pasteInput);
+assert.match(editor.getText(), /^\[paste #1 \+11 lines\]$/);
+assert.deepEqual(widgets.get("ptk-paste-hint"), ["Paste the same content again to expand it inline"]);
+editor.handleInput(pasteInput);
+assert.equal(editor.getText(), longPaste);
+assert.equal(widgets.has("ptk-paste-hint"), false);
+editor.handleInput("!");
+assert.equal(editor.getText(), `${longPaste}!`);
+editor.setText("");
+editor.handleInput(pasteInput);
+assert.equal(widgets.has("ptk-paste-hint"), true);
+editor.handleInput("x");
+assert.equal(widgets.has("ptk-paste-hint"), false);
+editor.handleInput(pasteInput);
+assert.match(editor.getText(), /^\[paste #1 \+11 lines\]x\[paste #2 \+11 lines\]$/);
+assert.equal(widgets.has("ptk-paste-hint"), true);
+editor.setText("");
+assert.equal(widgets.has("ptk-paste-hint"), false);
+editor.handleInput(pasteInput);
+assert.equal(widgets.has("ptk-paste-hint"), true);
+editor.handleInput("\x1b[D");
+assert.equal(widgets.has("ptk-paste-hint"), false);
+editor.setText("");
+
+const cycleCollapsedKey = "\x1b[111;6u";
+editor.handleInput(cycleCollapsedKey);
 assert.equal(expanded, false);
-assert.match(rendered(), /^ tools 1 read · 1 bash · 1 write/m);
+assert.equal(notifications.at(-1), "Collapsed tool view: normal");
+assert.equal(leaderBlocks().length, 1);
+assert.equal(leaderHasBackground(), true);
+assert.match(rendered(), /^ • read demo\.txt 30 lines/m);
 assert.match(
 	rendered(),
-	/   read line 01\n   read line 02\n   \.\.\. \(16 more lines\)\n   read line 19\n   read line 20\n\n ├ bash/,
+	/   └ read line 01\n     read line 02[\s\S]*     read line 10\n     \.\.\. \(10 more lines\)\n     read line 21[\s\S]*     read line 30\n\n • bash/,
 );
-assert.doesNotMatch(rendered(), /read line 03/);
-assert.match(
-	rendered(),
-	/   bash line 01\n   bash line 02\n   \.\.\. \(16 more lines\)\n   bash line 19\n   bash line 20\n\n └ write/,
-);
+assert.doesNotMatch(rendered(), /read line 11/);
+assert.match(rendered(), /   └ bash line 01\n     bash line 02\n     \.\.\. \(26 more lines\)\n     bash line 29\n     bash line 30/);
 assert.doesNotMatch(rendered(), /bash line 03/);
-assert.match(
-	rendered(),
-	/   write line 01\n   write line 02\n   \.\.\. \(16 more lines\)\n   write line 19\n   write line 20/,
-);
+assert.match(rendered(), /   └ write line 01\n     write line 02\n     \.\.\. \(26 more lines\)\n     write line 29\n     write line 30/);
 assert.doesNotMatch(rendered(), /write line 03/);
 
+assert.match(leader.render(50).join("\n"), /\n   │ /);
 editor.handleInput("\x0f");
 assert.equal(expanded, true);
-assert.match(rendered(), /read line 20/);
-assert.match(rendered(), /bash line 01/);
-assert.match(rendered(), /write line 20/);
+assert.equal(leaderHasBackground(), true);
+assert.equal(individualBackgrounds().length, 3);
+assert.match(rendered(), /read line 11/);
+assert.match(rendered(), /bash line 30/);
+assert.match(rendered(), /write line 30/);
+editor.handleInput(cycleCollapsedKey);
+assert.equal(expanded, true);
+assert.equal(notifications.at(-1), "Collapsed tool view: one line");
+assert.equal(individualBackgrounds().length, 3);
 editor.handleInput("\x0f");
 assert.equal(expanded, false);
+assert.equal(leaderHasBackground(), false);
+assert.match(rendered(), /• tools 1 read · 1 bash · 1 write/);
+assert.doesNotMatch(rendered(), /demo\.txt|read line 01/);
+editor.handleInput(cycleCollapsedKey);
+assert.equal(notifications.at(-1), "Collapsed tool view: list");
+assert.match(rendered(), /demo\.txt/);
 assert.doesNotMatch(rendered(), /read line 01/);
+editor.handleInput(cycleCollapsedKey);
+assert.equal(notifications.at(-1), "Collapsed tool view: normal");
+assert.match(rendered(), /read line 01/);
+
+await ends[0]({ message: { role: "user", content: "diff color boundary" } });
+const editArgs = { path: "colored.ts", edits: [{ oldText: "old", newText: "new" }] };
+const editDiff = [
+	"-1 old",
+	"+1 new",
+	...Array.from({ length: 26 }, (_, index) => ` ${index + 2} same`),
+	"-29 tail-old",
+	"+30 tail-new",
+].join("\n");
+states["edit-color"] = {};
+invalidations["edit-color"] = 0;
+const editLeader = edit.renderCall(editArgs, theme, context("edit-color", editArgs));
+edit.renderResult(
+	{ content: [{ type: "text", text: "Successfully replaced 1 block" }], details: { diff: editDiff } },
+	{ expanded, isPartial: false }, theme, context("edit-color", editArgs),
+);
+foregrounds.length = 0;
+editLeader.render(120);
+assert(foregrounds.some(({ color, text }) => color === "toolDiffRemoved" && text.includes("-1 old")));
+assert(foregrounds.some(({ color, text }) => color === "toolDiffAdded" && text.includes("+1 new")));
+assert(foregrounds.some(({ color, text }) => color === "toolDiffContext" && text.includes("26 more lines")));
+const editRendered = editLeader.render(120).join("\n");
+assert.match(editRendered, /-1 old[\s\S]*\+1 new[\s\S]*\.\.\. \(26 more lines\)[\s\S]*-29 tail-old[\s\S]*\+30 tail-new/);
+assert.doesNotMatch(editRendered, / 2 same/);
+editor.handleInput(cycleCollapsedKey);
+assert.equal(expanded, false);
+assert.equal(notifications.at(-1), "Collapsed tool view: one line");
+await ends[0]({ message: { role: "user", content: "end diff color test" } });
 
 await ends[0]({ message: { role: "assistant", content: [
 	toolCall("read-1", "read", readArgs),
@@ -246,6 +351,8 @@ const replayLeader = find.renderCall({ pattern: "*.ts" }, theme, context("replay
 const replayFollower = read.renderCall({ path: "a.ts" }, theme, context("replay-read", { path: "a.ts" }));
 assert.match(replayLeader.render(120).join("\n"), /tools 1 find · 1 read/);
 assert.equal(replayFollower.render(120).join("").trim(), "");
+editor.handleInput(cycleCollapsedKey);
+assert.equal(notifications.at(-1), "Collapsed tool view: list");
 
 await ends[0]({ message: { role: "user", content: "real component boundary" } });
 const realArgs = { command: "single real component" };
@@ -266,6 +373,39 @@ realComponent.updateResult({
 const realRendered = realComponent.render(120).join("\n");
 assert.equal(realRendered.match(/single real component/g)?.length ?? 0, 1, realRendered);
 assert.equal(realRendered.match(/failed/g)?.length ?? 0, 1, realRendered);
+
+writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
+	compactTools: true,
+	toolView: "compact",
+	ctrlBackspace: true,
+	dollarSkills: true,
+}, null, 2));
+const { extensions: oneLineExtensions, errors: oneLineErrors } = await loadExtensions([extensionPath], extensionRoot);
+assert.deepEqual(oneLineErrors, []);
+const oneLineExtension = oneLineExtensions[0];
+const oneLineStarts = oneLineExtension.handlers.get("session_start");
+const oneLineUpdates = oneLineExtension.handlers.get("message_update");
+await oneLineStarts[1]({}, {
+	ui: { getToolsExpanded: () => false },
+	sessionManager: { buildSessionContext: () => ({ messages: [] }) },
+});
+await oneLineUpdates[1]({ message: { role: "assistant", content: [
+	toolCall("one-line-read", "read", { path: "one-line.txt" }),
+	toolCall("one-line-bash", "bash", { command: "echo one-line" }),
+] } });
+const oneLineStates = { "one-line-read": {}, "one-line-bash": {} };
+const oneLineContext = (id, args) => ({
+	...context(id, args),
+	state: oneLineStates[id],
+	invalidate() {},
+});
+const oneLineRead = oneLineExtension.tools.get("read").definition;
+const oneLineBash = oneLineExtension.tools.get("bash").definition;
+const oneLineLeader = oneLineRead.renderCall({ path: "one-line.txt" }, theme, oneLineContext("one-line-read", { path: "one-line.txt" }));
+oneLineBash.renderCall({ command: "echo one-line" }, theme, oneLineContext("one-line-bash", { command: "echo one-line" }));
+const oneLineRendered = oneLineLeader.render(120).join("\n");
+assert.match(oneLineRendered, /• tools 1 read · 1 bash/);
+assert.doesNotMatch(oneLineRendered, /one-line\.txt|echo one-line/);
 
 cleanup();
 console.log("grouped tool renderer verified");

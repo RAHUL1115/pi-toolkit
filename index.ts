@@ -13,6 +13,7 @@ import {
 	getAgentDir,
 	getSettingsListTheme,
 	keyHint,
+	rawKeyHint,
 	type ExtensionAPI,
 	type ExtensionContext,
 	type ToolDefinition,
@@ -21,20 +22,26 @@ import {
 	Container,
 	type AutocompleteItem,
 	type AutocompleteProvider,
+	type Component,
 	type SettingItem,
 	SettingsList,
+	Spacer,
 	Text,
+	matchesKey,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import registerObservability from "./pi-toolkit-lib/observability.js";
 
 const SETTINGS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "pi-toolkit.json");
 const MAX_SUGGESTIONS = 20;
+const READ_PREVIEW_EDGE_LINES = 10;
 const TOOL_PREVIEW_EDGE_LINES = 2;
 const DOLLAR_SELECTOR = /(^|\s)\$([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?=$|\s|[.,;:!?])/gi;
 const SKILL_COMMAND = /^\/skill:([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\s+|$)/i;
 
-type ToolDetail = "collapsed" | "preview" | "full";
-type Settings = { compactTools: boolean; ctrlBackspace: boolean; dollarSkills: boolean };
+type ToolDetail = "collapsed" | "expanded";
+type ToolView = "one line" | "list" | "normal";
+type Settings = { compactTools: boolean; ctrlBackspace: boolean; dollarSkills: boolean; toolView: ToolView };
 type Args = Record<string, unknown>;
 type Details = Record<string, unknown> | undefined;
 type RenderTheme = Parameters<NonNullable<ToolDefinition<any, any, any>["renderCall"]>>[1];
@@ -51,7 +58,7 @@ type GroupCall = {
 };
 type ToolGroup = {
 	calls: GroupCall[];
-	leader: Text;
+	leader: Container;
 	invalidate?: () => void;
 	theme?: RenderTheme;
 };
@@ -66,9 +73,12 @@ function loadSettings(): Settings {
 			compactTools: stored.compactTools !== false,
 			ctrlBackspace: stored.ctrlBackspace !== false,
 			dollarSkills: stored.dollarSkills !== false,
+			toolView: stored.toolView === "one line" || stored.toolView === "compact"
+				? "one line"
+				: stored.toolView === "normal" ? "normal" : "list",
 		};
 	} catch {
-		return { compactTools: true, ctrlBackspace: true, dollarSkills: true };
+		return { compactTools: true, ctrlBackspace: true, dollarSkills: true, toolView: "list" };
 	}
 }
 
@@ -84,23 +94,23 @@ function saveSettings(settings: Settings): void {
 	writeFileSync(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
 }
 
-function shorten(value: unknown, fallback = ""): string {
+function display(value: unknown, fallback = "", compact = true): string {
 	const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : fallback;
-	return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+	return compact && text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
 
-function subject(tool: string, args: Args): string {
+function subject(tool: string, args: Args, compact = true): string {
 	switch (tool) {
 		case "bash":
-			return shorten(args.command, "command");
+			return display(args.command, "command", compact);
 		case "grep":
-			return `/${shorten(args.pattern)}/ in ${shorten(args.path, ".")}`;
+			return `/${display(args.pattern, "", compact)}/ in ${display(args.path, ".", compact)}`;
 		case "find":
-			return `${shorten(args.pattern)} in ${shorten(args.path, ".")}`;
+			return `${display(args.pattern, "", compact)} in ${display(args.path, ".", compact)}`;
 		case "ls":
-			return shorten(args.path, ".");
+			return display(args.path, ".", compact);
 		default:
-			return shorten(args.path);
+			return display(args.path, "", compact);
 	}
 }
 
@@ -139,37 +149,167 @@ function expandedBody(tool: string, args: Args, output: string, details: Details
 	return output;
 }
 
-function previewBody(body: string): string {
+function previewBody(body: string, edgeLines: number): string {
 	const lines = body.split("\n");
 	while (lines.at(-1) === "") lines.pop();
-	const hidden = lines.length - TOOL_PREVIEW_EDGE_LINES * 2;
+	const hidden = lines.length - edgeLines * 2;
 	if (hidden <= 0) return lines.join("\n");
 	return [
-		...lines.slice(0, TOOL_PREVIEW_EDGE_LINES),
+		...lines.slice(0, edgeLines),
 		`... (${hidden} more lines)`,
-		...lines.slice(-TOOL_PREVIEW_EDGE_LINES),
+		...lines.slice(-edgeLines),
 	].join("\n");
+}
+
+function colorBodyLine(tool: string, line: string, theme: RenderTheme): string {
+	if (tool !== "edit") return theme.fg("toolOutput", line);
+	if (line.startsWith("+")) return theme.fg("toolDiffAdded", line);
+	if (line.startsWith("-")) return theme.fg("toolDiffRemoved", line);
+	return theme.fg("toolDiffContext", line);
+}
+
+class ActivityText implements Component {
+	readonly hasBackground: boolean;
+	private readonly text: Text;
+	private renderedWidth?: number;
+
+	constructor(
+		private readonly build: (width: number) => string,
+		private readonly paddingX: number,
+		background?: (text: string) => string,
+	) {
+		this.hasBackground = Boolean(background);
+		this.text = new Text("", paddingX, 0, background);
+	}
+
+	render(width: number): string[] {
+		const contentWidth = Math.max(1, width - this.paddingX * 2);
+		if (this.renderedWidth !== contentWidth) {
+			this.text.setText(this.build(contentWidth));
+			this.renderedWidth = contentWidth;
+		}
+		return this.text.render(width);
+	}
+
+	invalidate(): void {
+		this.renderedWidth = undefined;
+		this.text.invalidate();
+	}
 }
 
 const CTRL_BACKSPACE = "\x08";
 const CTRL_W = "\x17";
 type EditorArgs = ConstructorParameters<typeof CustomEditor>;
-type ToolCycle = (ctx: ExtensionContext) => void;
+type PasteInternals = {
+	handlePaste(text: string): void;
+	handleBackspace(): void;
+	isInPaste: boolean;
+	pastes: Map<number, string>;
+};
+type RepeatablePaste = {
+	rawContent: string;
+	expandedContent: string;
+	editorText: string;
+	cursor: { line: number; col: number };
+};
+const PASTE_MARKER_AT_CURSOR = /\[paste #(\d+)(?: (?:\+\d+ lines|\d+ chars))?\]$/;
+
+function cleanPastedText(text: string): string {
+	const decoded = text.replace(/\x1b\[(\d+);5u/g, (match, code: string) => {
+		const point = Number(code);
+		if (point >= 97 && point <= 122) return String.fromCharCode(point - 96);
+		if (point >= 65 && point <= 90) return String.fromCharCode(point - 64);
+		return match;
+	});
+	return decoded
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n")
+		.replace(/\t/g, "    ")
+		.split("")
+		.filter((character) => character === "\n" || character.charCodeAt(0) >= 32)
+		.join("");
+}
+type ToolAction = (ctx: ExtensionContext) => void;
+type ToolControls = { toggleExpanded: ToolAction; cycleCollapsed: ToolAction };
 
 class ToolkitEditor extends CustomEditor {
+	private repeatablePaste?: RepeatablePaste;
+
 	constructor(
 		tui: EditorArgs[0],
 		theme: EditorArgs[1],
 		private readonly toolkitKeybindings: EditorArgs[2],
 		private readonly normalizeCtrlBackspace: boolean,
-		private readonly cycleTools?: () => void,
+		private readonly toggleTools?: () => void,
+		private readonly cycleCollapsedTools?: () => void,
+		private readonly onRepeatablePasteChange?: (visible: boolean) => void,
 	) {
 		super(tui, theme, toolkitKeybindings);
+		const candidate = this as unknown as Partial<PasteInternals>;
+		if (
+			typeof candidate.handlePaste !== "function"
+			|| typeof candidate.handleBackspace !== "function"
+			|| typeof candidate.isInPaste !== "boolean"
+			|| !(candidate.pastes instanceof Map)
+		) return;
+		const internals = candidate as PasteInternals;
+		const defaultHandlePaste = internals.handlePaste.bind(this);
+		const handlePaste = (text: string) => {
+			const rawContent = cleanPastedText(text);
+			const cursor = this.getCursor();
+			const previous = this.repeatablePaste;
+			if (
+				previous
+				&& rawContent === previous.rawContent
+				&& this.getText() === previous.editorText
+				&& cursor.line === previous.cursor.line
+				&& cursor.col === previous.cursor.col
+			) {
+				// The built-in editor treats a paste marker as one backspace unit.
+				internals.handleBackspace();
+				this.insertTextAtCursor(previous.expandedContent);
+				this.setRepeatablePaste(undefined);
+				return;
+			}
+
+			defaultHandlePaste(text);
+			const nextCursor = this.getCursor();
+			const beforeCursor = this.getLines()[nextCursor.line]?.slice(0, nextCursor.col) ?? "";
+			const marker = beforeCursor.match(PASTE_MARKER_AT_CURSOR);
+			const expandedContent = marker ? internals.pastes.get(Number(marker[1])) : undefined;
+			this.setRepeatablePaste(marker && expandedContent !== undefined
+				? { rawContent, expandedContent, editorText: this.getText(), cursor: nextCursor }
+				: undefined);
+		};
+		try {
+			internals.handlePaste = handlePaste;
+		} catch {
+			// Upstream editor internals changed; retain Pi's default paste behavior.
+		}
+	}
+
+	private setRepeatablePaste(paste: RepeatablePaste | undefined): void {
+		const wasVisible = this.repeatablePaste !== undefined;
+		this.repeatablePaste = paste;
+		const visible = paste !== undefined;
+		if (visible !== wasVisible) this.onRepeatablePasteChange?.(visible);
+	}
+
+	override setText(text: string): void {
+		this.setRepeatablePaste(undefined);
+		super.setText(text);
 	}
 
 	override handleInput(data: string): void {
-		if (this.cycleTools && this.toolkitKeybindings.matches(data, "app.tools.expand")) {
-			this.cycleTools();
+		const internals = this as unknown as PasteInternals;
+		const isPasteInput = internals.isInPaste || data.includes("\x1b[200~");
+		if (!isPasteInput) this.setRepeatablePaste(undefined);
+		if (this.cycleCollapsedTools && matchesKey(data, "ctrl+shift+o")) {
+			this.cycleCollapsedTools();
+			return;
+		}
+		if (this.toggleTools && this.toolkitKeybindings.matches(data, "app.tools.expand")) {
+			this.toggleTools();
 			return;
 		}
 		super.handleInput(this.normalizeCtrlBackspace && data === CTRL_BACKSPACE ? CTRL_W : data);
@@ -181,28 +321,42 @@ function supportsCtrlBackspaceNormalization(): boolean {
 		&& (process.env.TERM_PROGRAM === "vscode" || Boolean(process.env.WT_SESSION));
 }
 
-function registerWorkflowEditor(pi: ExtensionAPI, settings: Settings, cycleTools?: ToolCycle): void {
+function registerWorkflowEditor(pi: ExtensionAPI, settings: Settings, controls?: ToolControls): void {
 	let previousEditor: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
 	let installed = false;
 
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 		const normalizeCtrlBackspace = settings.ctrlBackspace && supportsCtrlBackspaceNormalization();
-		if (!normalizeCtrlBackspace && !cycleTools) return;
 		previousEditor = ctx.ui.getEditorComponent();
 		ctx.ui.setEditorComponent((tui, theme, keybindings) =>
-			new ToolkitEditor(tui, theme, keybindings, normalizeCtrlBackspace, cycleTools ? () => cycleTools(ctx) : undefined));
+			new ToolkitEditor(
+				tui,
+				theme,
+				keybindings,
+				normalizeCtrlBackspace,
+				controls ? () => controls.toggleExpanded(ctx) : undefined,
+				controls ? () => controls.cycleCollapsed(ctx) : undefined,
+				(visible) => {
+					ctx.ui.setWidget(
+						"ptk-paste-hint",
+						visible ? ["Paste the same content again to expand it inline"] : undefined,
+						visible ? { placement: "belowEditor" } : undefined,
+					);
+				},
+			));
 		installed = true;
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
 		if (!installed) return;
+		ctx.ui.setWidget("ptk-paste-hint", undefined);
 		ctx.ui.setEditorComponent(previousEditor);
 		installed = false;
 	});
 }
 
-function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolCycle {
+function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolControls {
 	const cwd = process.cwd();
 	const outputPad = loadOutputPad();
 	const supported = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
@@ -222,34 +376,80 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolCycle {
 	const paint = (group: ToolGroup, theme = group.theme): void => {
 		if (!theme) return;
 		group.theme = theme;
+		group.leader.clear();
 		const counts = new Map<string, number>();
 		for (const call of group.calls) counts.set(call.tool, (counts.get(call.tool) ?? 0) + 1);
 		const countText = [...counts].map(([name, count]) => `${count} ${name}`).join(" · ");
 		const running = group.calls.some((call) => call.partial);
-		let text = theme.fg("toolTitle", theme.bold(`tools ${countText}`));
-		for (const [index, call] of group.calls.entries()) {
-				const branch = index === group.calls.length - 1 ? "└" : "├";
-				const status = call.partial
-					? theme.fg("warning", " …")
-					: call.error
-						? theme.fg("error", " failed")
-						: theme.fg("success", ` ${summary(call.tool, call.args, call.output, call.details)}`);
-				const separator = index > 0 && detail !== "collapsed" ? "\n\n" : "\n";
-				text += `${separator}${theme.fg("dim", `${branch} `)}${theme.fg("toolTitle", call.tool)} ${theme.fg("accent", subject(call.tool, call.args))}${status}`;
-				if (detail !== "collapsed" && !running && !call.partial) {
-					const body = expandedBody(call.tool, call.args, call.output, call.details);
-					if (body) {
-						const renderedBody = (detail === "full" ? body : previewBody(body))
-							.split("\n")
-							.map((line) => `  ${line}`)
-							.join("\n");
-						text += `\n${theme.fg("toolOutput", renderedBody)}`;
-					}
+		const viewHint = detail === "collapsed" ? ` · ${rawKeyHint("ctrl+shift+o", "view")}` : "";
+		const hint = theme.fg("dim", ` · ${keyHint("app.tools.expand", detail === "collapsed" ? "expand" : "collapse")}${viewHint}`);
+		const status = (call: GroupCall): string => call.partial
+			? theme.fg("warning", " …")
+			: call.error
+				? theme.fg("error", " failed")
+				: theme.fg("success", ` ${summary(call.tool, call.args, call.output, call.details)}`);
+		const renderActivity = (call: GroupCall, index: number, width: number): string => {
+			const callHint = index === group.calls.length - 1 ? hint : "";
+			const heading = `${theme.fg("toolTitle", call.tool)} ${theme.fg("accent", subject(call.tool, call.args, false))}${status(call)}${callHint}`;
+			const headingLines = wrapTextWithAnsi(heading, Math.max(1, width - 4));
+			const lines = headingLines.map((line, lineIndex) => `${lineIndex === 0 ? "• " : "  │ "}${line}`);
+			if (running || call.partial) return lines.join("\n");
+			const body = expandedBody(call.tool, call.args, call.output, call.details);
+			if (!body) return lines.join("\n");
+			const renderedBody = detail === "expanded"
+				? body
+				: previewBody(body, call.tool === "read" ? READ_PREVIEW_EDGE_LINES : TOOL_PREVIEW_EDGE_LINES);
+			let firstOutputLine = true;
+			for (const bodyLine of renderedBody.split("\n")) {
+				const wrapped = wrapTextWithAnsi(colorBodyLine(call.tool, bodyLine, theme), Math.max(1, width - 4));
+				for (const line of wrapped) {
+					lines.push(`${firstOutputLine ? "  └ " : "    "}${line}`);
+					firstOutputLine = false;
 				}
 			}
-		const next = detail === "collapsed" ? "preview" : detail === "preview" ? "full output" : "collapse";
-		text += theme.fg("dim", ` · ${keyHint("app.tools.expand", next)}`);
-		group.leader.setText(text);
+			return lines.join("\n");
+		};
+
+		if (detail === "collapsed" && settings.toolView !== "normal") {
+			group.leader.addChild(new ActivityText((width) => {
+				const lines = [`${theme.fg("toolTitle", theme.bold(`• tools ${countText}`))}${hint}`];
+				if (settings.toolView === "list") {
+					for (const [index, call] of group.calls.entries()) {
+						const branch = index === group.calls.length - 1 ? "└" : "├";
+						const heading = `${theme.fg("toolTitle", call.tool)} ${theme.fg("accent", subject(call.tool, call.args))}${status(call)}`;
+						const wrapped = wrapTextWithAnsi(heading, Math.max(1, width - 4));
+						lines.push(`  ${branch} ${wrapped[0] ?? ""}`);
+						for (const line of wrapped.slice(1)) lines.push(`  │ ${line}`);
+					}
+				}
+				return lines.join("\n");
+			}, outputPad));
+			return;
+		}
+
+		if (detail === "collapsed") {
+			const background = running
+				? "toolPendingBg"
+				: group.calls.some((call) => call.error)
+					? "toolErrorBg"
+					: "toolSuccessBg";
+			group.leader.addChild(new ActivityText(
+				(width) => group.calls.map((call, index) => renderActivity(call, index, width)).join("\n\n"),
+				outputPad,
+				(text) => theme.bg(background, text),
+			));
+			return;
+		}
+
+		for (const [index, call] of group.calls.entries()) {
+			if (index > 0) group.leader.addChild(new Spacer(1));
+			const background = call.partial ? "toolPendingBg" : call.error ? "toolErrorBg" : "toolSuccessBg";
+			group.leader.addChild(new ActivityText(
+				(width) => renderActivity(call, index, width),
+				outputPad,
+				(text) => theme.bg(background, text),
+			));
+		}
 	};
 
 	const makeGroup = (specs: Array<{ id: string; tool: string; args: Args }>, previous?: ToolGroup): void => {
@@ -260,7 +460,7 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolCycle {
 		if (!previous && group?.calls.some((call) => !specIds.has(call.id))) group = undefined;
 		if (!group) group = {
 			calls: [],
-			leader: new Text("", outputPad, 0),
+			leader: new Container(),
 		};
 		groups.set(specs[0].id, group);
 		const next: GroupCall[] = [];
@@ -356,7 +556,7 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolCycle {
 	};
 
 	pi.on("session_start", (_event, ctx) => {
-		detail = ctx.ui.getToolsExpanded() ? "full" : "collapsed";
+		detail = ctx.ui.getToolsExpanded() ? "expanded" : "collapsed";
 		rebuildFromMessages(ctx.sessionManager.buildSessionContext().messages);
 	});
 
@@ -414,6 +614,7 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolCycle {
 			...tool,
 			renderShell: "self",
 			renderCall(args: Args, theme, context) {
+				detail = context.expanded ? "expanded" : "collapsed";
 				let call = calls.get(context.toolCallId);
 				if (!call) {
 					makeGroup([{ id: context.toolCallId, tool: tool.name, args }]);
@@ -433,6 +634,7 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolCycle {
 				return shell;
 			},
 			renderResult(result, { isPartial }, theme, context) {
+				detail = context.expanded ? "expanded" : "collapsed";
 				const call = context.state.call ?? calls.get(context.toolCallId);
 				if (call) {
 					call.args = context.args as Args;
@@ -450,15 +652,27 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolCycle {
 		});
 	}
 
-	return (ctx) => {
-		// Pi exposes a boolean expansion state, so preview remains local to grouped tools.
-		detail = detail === "collapsed" ? "preview" : detail === "preview" ? "full" : "collapsed";
-		if (detail === "full") ctx.ui.setToolsExpanded(true);
-		if (detail === "collapsed") ctx.ui.setToolsExpanded(false);
+	const repaint = (): void => {
 		for (const group of groups.values()) {
 			paint(group);
 			group.invalidate?.();
 		}
+	};
+
+	return {
+		toggleExpanded(ctx) {
+			detail = detail === "collapsed" ? "expanded" : "collapsed";
+			ctx.ui.setToolsExpanded(detail === "expanded");
+			repaint();
+		},
+		cycleCollapsed(ctx) {
+			settings.toolView = settings.toolView === "one line"
+				? "list"
+				: settings.toolView === "list" ? "normal" : "one line";
+			saveSettings(settings);
+			ctx.ui.notify(`Collapsed tool view: ${settings.toolView}`, "info");
+			repaint();
+		},
 	};
 }
 
@@ -564,6 +778,27 @@ function createAutocompleteProvider(pi: ExtensionAPI, current: AutocompleteProvi
 	};
 }
 
+function markMarkdown(markdown: string, marker: string): string {
+	const lines = markdown.split("\n");
+	const startsWithBlock = /^(?: {4}|\t| {0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```|~~~|\||<|(?:---|___|\*\*\*)\s*$))/.test(lines[0] ?? "");
+	const startsWithSetextHeading = lines.length > 1 && /^ {0,3}(?:=+|-+)\s*$/.test(lines[1] ?? "");
+	return startsWithBlock || startsWithSetextHeading ? `${marker}\n\n${markdown}` : `${marker} ${markdown}`;
+}
+
+function registerTranscriptMarkers(pi: ExtensionAPI): void {
+	const register = (pi as unknown as {
+		registerMarkdownTransformer?: (
+			transformer: (markdown: string, context: { messageType: string }) => string,
+		) => void;
+	}).registerMarkdownTransformer;
+	register?.((markdown, context) => {
+		if (context.messageType === "user") return markMarkdown(markdown, "›");
+		if (context.messageType === "assistant-thinking") return markMarkdown(markdown, "◦");
+		if (context.messageType === "assistant") return markMarkdown(markdown, "•");
+		return markdown;
+	});
+}
+
 function registerDollarSkills(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode === "tui") ctx.ui.addAutocompleteProvider((current) => createAutocompleteProvider(pi, current));
@@ -612,21 +847,29 @@ function registerDollarSkills(pi: ExtensionAPI): void {
 
 export default function piToolkit(pi: ExtensionAPI): void {
 	registerObservability(pi);
+	registerTranscriptMarkers(pi);
 	const settings = loadSettings();
-	const cycleTools = settings.compactTools ? registerCompactTools(pi, settings) : undefined;
-	registerWorkflowEditor(pi, settings, cycleTools);
+	const toolControls = settings.compactTools ? registerCompactTools(pi, settings) : undefined;
+	registerWorkflowEditor(pi, settings, toolControls);
 	if (settings.dollarSkills) registerDollarSkills(pi);
 
-	pi.registerCommand("ptk-workflow-settings", {
+	pi.registerCommand("ptk-settings", {
 		description: "Toggle Pi Toolkit workflow features",
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/ptk-workflow-settings requires TUI mode", "error");
+				ctx.ui.notify("/ptk-settings requires TUI mode", "error");
 				return;
 			}
 			let changed = false;
 			const items: SettingItem[] = [
 				{ id: "compactTools", label: "Compact tools", currentValue: settings.compactTools ? "on" : "off", values: ["on", "off"] },
+				{
+					id: "toolView",
+					label: "Collapsed tool view",
+					description: "Collapsed layout: aggregate only, aggregate with calls, or preview output.",
+					currentValue: settings.toolView,
+					values: ["one line", "list", "normal"],
+				},
 				{ id: "dollarSkills", label: "Dollar skills", currentValue: settings.dollarSkills ? "on" : "off", values: ["on", "off"] },
 				{
 					id: "ctrlBackspace",
@@ -644,7 +887,8 @@ export default function piToolkit(pi: ExtensionAPI): void {
 					items.length + 2,
 					getSettingsListTheme(),
 					(id, value) => {
-						settings[id as "compactTools" | "ctrlBackspace" | "dollarSkills"] = value === "on";
+						if (id === "toolView") settings.toolView = value as ToolView;
+						else settings[id as "compactTools" | "ctrlBackspace" | "dollarSkills"] = value === "on";
 						saveSettings(settings);
 						changed = true;
 					},

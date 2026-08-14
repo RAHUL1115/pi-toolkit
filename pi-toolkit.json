@@ -1,5 +1,5 @@
 {
-  "compactTools": false,
+  "compactTools": true,
   "ctrlBackspace": true,
   "dollarSkills": true,
   "toolView": "list"

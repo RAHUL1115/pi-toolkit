@@ -13,7 +13,7 @@
  * agent run, so the standalone TPS extension is no longer needed.
  *
  * Commands:
- *   /ptk          - Print full observability dashboard + last 10 sessions
+ *   /ptk-obs      - Print full observability dashboard + last 10 sessions
  *   /ptk-footer-settings - Configure the footer, layout, segments, and context zones
  */
 
@@ -579,7 +579,7 @@ export default function (pi: ExtensionAPI) {
 
   /* ─── Commands ─── */
 
-  pi.registerCommand("ptk", {
+  pi.registerCommand("ptk-obs", {
     description: "Show observability dashboard (tokens, cost, TPS, runtime, history)",
     handler: async (_args, ctx) => {
       const branchResult = await pi.exec("git", ["branch", "--show-current"], {

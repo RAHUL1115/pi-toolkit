@@ -309,7 +309,7 @@ class ToolkitEditor extends CustomEditor {
 		const internals = this as unknown as PasteInternals;
 		const isPasteInput = internals.isInPaste || data.includes("\x1b[200~");
 		if (!isPasteInput) this.setRepeatablePaste(undefined);
-		if (this.cycleCollapsedTools && matchesKey(data, "ctrl+shift+o")) {
+		if (this.cycleCollapsedTools && matchesKey(data, "alt+o")) {
 			this.cycleCollapsedTools();
 			return;
 		}
@@ -672,6 +672,7 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolControl
 			repaint();
 		},
 		cycleCollapsed(ctx) {
+			if (detail !== "collapsed") return;
 			settings.toolView = settings.toolView === "one line"
 				? "list"
 				: settings.toolView === "list" ? "normal" : "one line";

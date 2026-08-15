@@ -45,10 +45,10 @@ The old `/ptk` and `/ptk-workflow-settings` names are intentionally removed.
 | Key | Behavior |
 |---|---|
 | `Ctrl+O` | Toggle grouped tool output between collapsed and fully expanded |
-| `Ctrl+Shift+O` | Cycle the collapsed layout: `one line` → `list` → `normal` |
+| `Alt+O` | Cycle the collapsed layout: `one line` → `list` → `normal` |
 | `Ctrl+Backspace` | Delete the previous word on supported Windows terminals when enabled |
 
-`Ctrl+O` uses Pi's configurable `app.tools.expand` action. `Ctrl+Shift+O` is currently fixed by the extension.
+`Ctrl+O` uses Pi's configurable `app.tools.expand` action. `Alt+O` is currently fixed by the extension and remains distinguishable from `Ctrl+O` without terminal-specific configuration.
 
 ## Grouped tool rendering
 
@@ -110,7 +110,7 @@ Output bodies remain hidden while any call in the group is still running.
 
 ### Expanded layout
 
-`Ctrl+O` displays the complete output body for every call, with a separate status-colored block per tool. Cycling the collapsed layout while expanded does not collapse the group; the selected layout is used the next time output is collapsed.
+`Ctrl+O` displays the complete output body for every call, with a separate status-colored block per tool. `Alt+O` cycles `one line` → `list` → `normal` only while the group is collapsed; it has no effect while output is expanded.
 
 ### Status summaries
 

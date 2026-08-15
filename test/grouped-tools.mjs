@@ -28,8 +28,8 @@ assert.deepEqual(errors, []);
 
 const extension = extensions[0];
 assert(extension.commands.has("ptk-obs"));
-assert(extension.commands.has("ptk-settings"));
-assert(!extension.commands.has("ptk"));
+assert(extension.commands.has("ptk"));
+assert(!extension.commands.has("ptk-settings"));
 assert(!extension.commands.has("ptk-workflow-settings"));
 const transformMarkdown = extension.markdownTransformer;
 assert.equal(typeof transformMarkdown, "function");

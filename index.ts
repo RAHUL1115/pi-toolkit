@@ -986,11 +986,11 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	registerFinalResponseTracking(pi);
 	if (settings.dollarSkills) registerDollarSkills(pi);
 
-	pi.registerCommand("ptk-settings", {
+	pi.registerCommand("ptk", {
 		description: "Toggle Pi Toolkit workflow features",
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui") {
-				ctx.ui.notify("/ptk-settings requires TUI mode", "error");
+				ctx.ui.notify("/ptk requires TUI mode", "error");
 				return;
 			}
 			let changed = false;

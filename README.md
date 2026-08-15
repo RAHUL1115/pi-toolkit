@@ -28,17 +28,17 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 /reload
 ```
 
-`/ptk-settings` reloads Pi automatically after workflow settings change. Footer settings apply immediately.
+`/ptk` reloads Pi automatically after workflow settings change. Footer settings apply immediately.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| `/ptk-settings` | Configure workflow features and the collapsed tool layout |
+| `/ptk` | Configure workflow features and the collapsed tool layout |
 | `/ptk-footer-settings` | Configure the footer, segments, presets, path display, and context thresholds |
 | `/ptk-obs` | Open the observability dashboard |
 
-The old `/ptk` and `/ptk-workflow-settings` names are intentionally removed.
+The old `/ptk-settings` and `/ptk-workflow-settings` names are intentionally removed.
 
 ## Keybindings
 
@@ -200,7 +200,7 @@ It has no effect on other platforms or terminals.
 
 ## Workflow settings
 
-Open `/ptk-settings` in TUI mode:
+Open `/ptk` in TUI mode:
 
 | Setting | Values | Default |
 |---|---|---|

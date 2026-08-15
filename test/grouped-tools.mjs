@@ -70,6 +70,43 @@ assert.equal(statusHarness.showStatus("Reloaded resources"), " Reloaded resource
 const starts = extension.handlers.get("session_start");
 const updates = extension.handlers.get("message_update");
 const ends = extension.handlers.get("message_end");
+await ends[1]({ message: {
+	role: "assistant",
+	content: [{ type: "text", text: "working" }, { type: "toolCall", id: "call-1", name: "read", arguments: {} }],
+	stopReason: "toolUse",
+} });
+assert.deepEqual(renderMarkdown("working", "assistant"), ["• working"]);
+await ends[1]({ message: {
+	role: "assistant",
+	content: [{ type: "text", text: "completed answer" }],
+	stopReason: "stop",
+} });
+const separatedAnswer = renderMarkdown("completed answer", "assistant", 42);
+assert(separatedAnswer[0].startsWith("─"));
+assert.equal(separatedAnswer.at(-1), "• completed answer");
+await ends[1]({ message: { role: "user", content: [{ type: "text", text: "direct question" }] } });
+await ends[1]({ message: {
+	role: "assistant",
+	content: [{ type: "text", text: "direct answer" }],
+	stopReason: "stop",
+} });
+assert.deepEqual(renderMarkdown("direct answer", "assistant"), ["• direct answer"]);
+await ends[1]({ message: { role: "user", content: [{ type: "text", text: "thinking question" }] } });
+await ends[1]({ message: {
+	role: "assistant",
+	content: [{ type: "thinking", thinking: "work" }, { type: "text", text: "thoughtful answer" }],
+	stopReason: "stop",
+} });
+assert(renderMarkdown("thoughtful answer", "assistant", 42)[0].startsWith("─"));
+await starts[3]({}, { sessionManager: { buildSessionContext: () => ({ messages: [
+	{ role: "user", content: [{ type: "text", text: "restored question" }] },
+	{ role: "assistant", content: [{ type: "thinking", thinking: "work" }, { type: "toolCall", id: "call-2", name: "read", arguments: {} }], stopReason: "toolUse" },
+	{ role: "toolResult", toolCallId: "call-2", toolName: "read", content: [{ type: "text", text: "result" }] },
+	{ role: "assistant", content: [{ type: "text", text: "restored answer" }], stopReason: "stop" },
+] }) } });
+const restoredAnswer = renderMarkdown("restored answer", "assistant", 42);
+assert(restoredAnswer[0].startsWith("─"));
+assert.equal(restoredAnswer.at(-1), "• restored answer");
 let editorFactory;
 let expanded = false;
 const notifications = [];

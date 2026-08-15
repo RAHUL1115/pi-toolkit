@@ -786,6 +786,8 @@ function createAutocompleteProvider(pi: ExtensionAPI, current: AutocompleteProvi
 
 const PI_THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 const patchedTranscriptThemes = new WeakSet<object>();
+const separatedFinalBlocks = new Set<string>();
+let hasVisibleActivity = false;
 let pendingTranscriptMarker: string | undefined;
 
 function isStatusRender(): boolean {
@@ -833,6 +835,55 @@ function compactThinkingSummaries(markdown: string): string {
 	return markdown.replace(/(\*\*[^\n]+\*\*)\n{2,}(?=\*\*[^\n]+\*\*(?:\n|$))/g, "$1  \n");
 }
 
+function finalTextBlocks(message: Message): string[] {
+	if (
+		message.role !== "assistant"
+		|| message.content.some((part) => part.type === "toolCall")
+		|| message.stopReason === "aborted"
+		|| message.stopReason === "error"
+		|| message.stopReason === "length"
+	) return [];
+	return message.content
+		.filter((part) => part.type === "text" && part.text.trim())
+		.slice(0, 1)
+		.map((part) => part.text.trim());
+}
+
+function trackVisibleActivity(message: Message): void {
+	if (message.role === "user") {
+		hasVisibleActivity = false;
+		return;
+	}
+	const finalBlocks = finalTextBlocks(message);
+	if (finalBlocks.length > 0) {
+		const hasThinking = message.role === "assistant"
+			&& message.content.some((part) => part.type === "thinking" && part.thinking.trim());
+		for (const text of finalBlocks) {
+			if (hasVisibleActivity || hasThinking) separatedFinalBlocks.add(text);
+			else separatedFinalBlocks.delete(text);
+		}
+		hasVisibleActivity = false;
+		return;
+	}
+	if (message.role === "assistant") {
+		hasVisibleActivity ||= message.content.some((part) =>
+			(part.type === "text" && Boolean(part.text.trim()))
+			|| (part.type === "thinking" && Boolean(part.thinking.trim()))
+			|| part.type === "toolCall");
+	} else if (message.role === "toolResult") {
+		hasVisibleActivity = true;
+	}
+}
+
+function registerFinalResponseTracking(pi: ExtensionAPI): void {
+	pi.on("session_start", (_event, ctx) => {
+		separatedFinalBlocks.clear();
+		hasVisibleActivity = false;
+		for (const message of ctx.sessionManager.buildSessionContext().messages) trackVisibleActivity(message);
+	});
+	pi.on("message_end", (event) => trackVisibleActivity(event.message));
+}
+
 function registerTranscriptMarkers(pi: ExtensionAPI): void {
 	const register = (pi as unknown as {
 		registerMarkdownTransformer?: (
@@ -842,7 +893,10 @@ function registerTranscriptMarkers(pi: ExtensionAPI): void {
 	register?.((markdown, context) => {
 		if (context.messageType === "user") return markMarkdown(markdown, "›");
 		if (context.messageType === "assistant-thinking") return markMarkdown(compactThinkingSummaries(markdown), "◦");
-		if (context.messageType === "assistant") return markMarkdown(markdown, "•");
+		if (context.messageType === "assistant") {
+			const marked = markMarkdown(markdown, "•");
+			return separatedFinalBlocks.has(markdown.trim()) ? `---\n\n${marked}` : marked;
+		}
 		return markdown;
 	});
 }
@@ -899,6 +953,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	const settings = loadSettings();
 	const toolControls = settings.compactTools ? registerCompactTools(pi, settings) : undefined;
 	registerWorkflowEditor(pi, settings, toolControls);
+	registerFinalResponseTracking(pi);
 	if (settings.dollarSkills) registerDollarSkills(pi);
 
 	pi.registerCommand("ptk-settings", {

@@ -81,8 +81,14 @@ await ends[1]({ message: {
 	content: [{ type: "text", text: "completed answer" }],
 	stopReason: "stop",
 } });
-const separatedAnswer = renderMarkdown("completed answer", "assistant", 42);
-assert(separatedAnswer[0].startsWith("─"));
+const separatedMarkdown = transformMarkdown("completed answer", {
+	isStreaming: false,
+	availableWidth: 120,
+	messageType: "assistant",
+});
+assert(separatedMarkdown.startsWith(globalTheme.getFgAnsi("dim")));
+const separatedAnswer = renderMarkdown("completed answer", "assistant", 120);
+assert.equal(separatedAnswer[0], "─".repeat(120));
 assert.equal(separatedAnswer.at(-1), "• completed answer");
 await ends[1]({ message: { role: "user", content: [{ type: "text", text: "direct question" }] } });
 await ends[1]({ message: {

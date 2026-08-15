@@ -822,6 +822,14 @@ function primeTranscriptMarker(marker: string): void {
 	pendingTranscriptMarker = marker;
 }
 
+function finalSeparator(width: number): string {
+	const line = "─".repeat(Math.max(1, Math.floor(width)));
+	const activeTheme = (globalThis as unknown as Record<symbol, unknown>)[PI_THEME_KEY] as {
+		fg?: (color: string, text: string) => string;
+	} | undefined;
+	return activeTheme?.fg?.("dim", line) ?? line;
+}
+
 function markMarkdown(markdown: string, marker: string): string {
 	// A one-item Markdown list supplies a native two-column hanging indent for wrapped lines and nested blocks.
 	primeTranscriptMarker(marker);
@@ -887,7 +895,7 @@ function registerFinalResponseTracking(pi: ExtensionAPI): void {
 function registerTranscriptMarkers(pi: ExtensionAPI): void {
 	const register = (pi as unknown as {
 		registerMarkdownTransformer?: (
-			transformer: (markdown: string, context: { messageType: string }) => string,
+			transformer: (markdown: string, context: { messageType: string; availableWidth: number }) => string,
 		) => void;
 	}).registerMarkdownTransformer;
 	register?.((markdown, context) => {
@@ -895,7 +903,7 @@ function registerTranscriptMarkers(pi: ExtensionAPI): void {
 		if (context.messageType === "assistant-thinking") return markMarkdown(compactThinkingSummaries(markdown), "◦");
 		if (context.messageType === "assistant") {
 			const marked = markMarkdown(markdown, "•");
-			return separatedFinalBlocks.has(markdown.trim()) ? `---\n\n${marked}` : marked;
+			return separatedFinalBlocks.has(markdown.trim()) ? `${finalSeparator(context.availableWidth)}\n\n${marked}` : marked;
 		}
 		return markdown;
 	});

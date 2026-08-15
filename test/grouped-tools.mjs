@@ -17,8 +17,9 @@ writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 
 const codingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
 const { loadExtensions } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
-const { initTheme } = await import(new URL("./modes/interactive/theme/theme.js", codingAgentEntry));
+const { getMarkdownTheme, initTheme, theme: globalTheme } = await import(new URL("./modes/interactive/theme/theme.js", codingAgentEntry));
 const { ToolExecutionComponent } = await import(new URL("./modes/interactive/components/tool-execution.js", codingAgentEntry));
+const { Markdown } = await import("@earendil-works/pi-tui");
 const extensionPath = join(extensionRoot, "index.ts");
 
 initTheme("dark");
@@ -32,13 +33,36 @@ assert(!extension.commands.has("ptk"));
 assert(!extension.commands.has("ptk-workflow-settings"));
 const transformMarkdown = extension.markdownTransformer;
 assert.equal(typeof transformMarkdown, "function");
-const markdownContext = { isStreaming: false, availableWidth: 120 };
-assert.equal(transformMarkdown("hello", { ...markdownContext, messageType: "user" }), "› hello");
-assert.equal(transformMarkdown("thinking", { ...markdownContext, messageType: "assistant-thinking" }), "◦ thinking");
-assert.equal(transformMarkdown("answer", { ...markdownContext, messageType: "assistant" }), "• answer");
-assert.equal(transformMarkdown("• literal bullet", { ...markdownContext, messageType: "assistant" }), "• • literal bullet");
-assert.equal(transformMarkdown("  - item", { ...markdownContext, messageType: "assistant" }), "•\n\n  - item");
-assert.equal(transformMarkdown("Heading\n---", { ...markdownContext, messageType: "assistant" }), "•\n\nHeading\n---");
+const ansiPattern = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+const renderMarkdown = (markdown, messageType, availableWidth = 120) => {
+	const transformed = transformMarkdown(markdown, { isStreaming: false, availableWidth, messageType });
+	return new Markdown(transformed, 0, 0, getMarkdownTheme())
+		.render(availableWidth)
+		.map((line) => line.replace(ansiPattern, "").trimEnd());
+};
+assert.deepEqual(renderMarkdown("hello", "user"), ["› hello"]);
+assert.deepEqual(renderMarkdown("thinking", "assistant-thinking"), ["◦ thinking"]);
+assert.deepEqual(
+	renderMarkdown("**Inspecting**\n\n**Reviewing**\n\n**Planning**", "assistant-thinking"),
+	["◦ Inspecting", "  Reviewing", "  Planning"],
+);
+assert.deepEqual(
+	renderMarkdown("**Inspecting**\n\nSupporting detail", "assistant-thinking"),
+	["◦ Inspecting", "", "  Supporting detail"],
+);
+assert.deepEqual(renderMarkdown("answer", "assistant"), ["• answer"]);
+assert.deepEqual(renderMarkdown("• literal bullet", "assistant"), ["• • literal bullet"]);
+const hangingBlock = renderMarkdown([
+	"The visible thinking block was:",
+	"",
+	"> A brief progress summary that wraps across the narrow transcript width.",
+	"",
+	"The explanation also wraps and stays aligned with the content column.",
+].join("\n"), "assistant", 42);
+assert(hangingBlock[0].startsWith("• "));
+assert(hangingBlock.some((line) => line.startsWith("  │ ")));
+assert(hangingBlock.slice(1).filter(Boolean).every((line) => line.startsWith("  ")));
+assert.equal(globalTheme.fg("error", "Operation aborted").replace(ansiPattern, ""), "× Operation aborted");
 const starts = extension.handlers.get("session_start");
 const updates = extension.handlers.get("message_update");
 const ends = extension.handlers.get("message_end");
@@ -104,7 +128,11 @@ const find = definition("find");
 const leader = read.renderCall(readArgs, theme, context("read-1", readArgs));
 const bashFollower = bash.renderCall(bashArgs, theme, context("bash-1", bashArgs));
 const writeFollower = write.renderCall(writeArgs, theme, context("write-1", writeArgs));
-const rendered = () => leader.render(120).map((line) => line.trimEnd()).join("\n");
+const rendered = (width = 120) => {
+	const lines = leader.render(width).map((line) => line.trimEnd());
+	const outputPad = lines[0]?.startsWith(" ") ? 1 : 0;
+	return lines.map((line) => outputPad && line.startsWith(" ") ? line.slice(1) : line).join("\n");
+};
 const leaderBlocks = () => leader.children[0]?.children ?? [];
 const leaderHasBackground = () => leaderBlocks()[0]?.hasBackground ?? false;
 const individualBackgrounds = () => leaderBlocks().filter((block) => block.hasBackground);
@@ -146,6 +174,9 @@ assert.equal(leaderHasBackground(), false);
 const editor = editorFactory({ requestRender() {} }, {}, {
 	matches: (data, action) => data === "\x0f" && action === "app.tools.expand",
 });
+assert.equal(editor.getPaddingX(), 1);
+editor.setPaddingX(0);
+assert.equal(editor.getPaddingX(), 1);
 const longPaste = Array.from({ length: 11 }, (_, index) => `editable line ${index + 1}`).join("\n");
 const pasteInput = `\x1b[200~${longPaste}\x1b[201~`;
 editor.handleInput(pasteInput);
@@ -178,18 +209,18 @@ assert.equal(expanded, false);
 assert.equal(notifications.at(-1), "Collapsed tool view: normal");
 assert.equal(leaderBlocks().length, 1);
 assert.equal(leaderHasBackground(), true);
-assert.match(rendered(), /^ • read demo\.txt 30 lines/m);
+assert.match(rendered(), /^• read demo\.txt 30 lines/m);
 assert.match(
 	rendered(),
-	/   └ read line 01\n     read line 02[\s\S]*     read line 10\n     \.\.\. \(10 more lines\)\n     read line 21[\s\S]*     read line 30\n\n • bash/,
+	/  └ read line 01\n    read line 02[\s\S]*    read line 10\n    \.\.\. \(10 more lines\)\n    read line 21[\s\S]*    read line 30\n\n• bash/,
 );
 assert.doesNotMatch(rendered(), /read line 11/);
-assert.match(rendered(), /   └ bash line 01\n     bash line 02\n     \.\.\. \(26 more lines\)\n     bash line 29\n     bash line 30/);
+assert.match(rendered(), /  └ bash line 01\n    bash line 02\n    \.\.\. \(26 more lines\)\n    bash line 29\n    bash line 30/);
 assert.doesNotMatch(rendered(), /bash line 03/);
-assert.match(rendered(), /   └ write line 01\n     write line 02\n     \.\.\. \(26 more lines\)\n     write line 29\n     write line 30/);
+assert.match(rendered(), /  └ write line 01\n    write line 02\n    \.\.\. \(26 more lines\)\n    write line 29\n    write line 30/);
 assert.doesNotMatch(rendered(), /write line 03/);
 
-assert.match(leader.render(50).join("\n"), /\n   │ /);
+assert.match(rendered(50), /\n  │ /);
 editor.handleInput("\x0f");
 assert.equal(expanded, true);
 assert.equal(leaderHasBackground(), true);

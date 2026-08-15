@@ -199,6 +199,7 @@ class ActivityText implements Component {
 
 const CTRL_BACKSPACE = "\x08";
 const CTRL_W = "\x17";
+const TOOLKIT_EDITOR_PADDING_X = 1;
 type EditorArgs = ConstructorParameters<typeof CustomEditor>;
 type PasteInternals = {
 	handlePaste(text: string): void;
@@ -244,7 +245,7 @@ class ToolkitEditor extends CustomEditor {
 		private readonly cycleCollapsedTools?: () => void,
 		private readonly onRepeatablePasteChange?: (visible: boolean) => void,
 	) {
-		super(tui, theme, toolkitKeybindings);
+		super(tui, theme, toolkitKeybindings, { paddingX: TOOLKIT_EDITOR_PADDING_X });
 		const candidate = this as unknown as Partial<PasteInternals>;
 		if (
 			typeof candidate.handlePaste !== "function"
@@ -300,6 +301,10 @@ class ToolkitEditor extends CustomEditor {
 		super.setText(text);
 	}
 
+	override setPaddingX(_padding: number): void {
+		super.setPaddingX(TOOLKIT_EDITOR_PADDING_X);
+	}
+
 	override handleInput(data: string): void {
 		const internals = this as unknown as PasteInternals;
 		const isPasteInput = internals.isInPaste || data.includes("\x1b[200~");
@@ -327,6 +332,7 @@ function registerWorkflowEditor(pi: ExtensionAPI, settings: Settings, controls?:
 
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
+		ensureActivityThemePatch();
 		const normalizeCtrlBackspace = settings.ctrlBackspace && supportsCtrlBackspaceNormalization();
 		previousEditor = ctx.ui.getEditorComponent();
 		ctx.ui.setEditorComponent((tui, theme, keybindings) =>
@@ -778,11 +784,48 @@ function createAutocompleteProvider(pi: ExtensionAPI, current: AutocompleteProvi
 	};
 }
 
+const PI_THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
+const patchedTranscriptThemes = new WeakSet<object>();
+let pendingTranscriptMarker: string | undefined;
+
+function ensureActivityThemePatch(): void {
+	const activeTheme = (globalThis as unknown as Record<symbol, unknown>)[PI_THEME_KEY] as {
+		fg?: (color: string, text: string) => string;
+	} | undefined;
+	if (!activeTheme || typeof activeTheme.fg !== "function" || patchedTranscriptThemes.has(activeTheme)) return;
+
+	const originalFg = activeTheme.fg.bind(activeTheme);
+	activeTheme.fg = (color, text) => {
+		if (color === "mdListBullet" && text === "- " && pendingTranscriptMarker) {
+			const selected = pendingTranscriptMarker;
+			pendingTranscriptMarker = undefined;
+			return originalFg(color, `${selected} `);
+		}
+		if (
+			color === "error"
+			&& /^(?:Operation aborted|Aborted after \d+ retry attempt|Response was truncated before completion\.|Error:)/.test(text)
+		) return originalFg(color, `× ${text}`);
+		return originalFg(color, text);
+	};
+	patchedTranscriptThemes.add(activeTheme);
+}
+
+function primeTranscriptMarker(marker: string): void {
+	ensureActivityThemePatch();
+	pendingTranscriptMarker = marker;
+}
+
 function markMarkdown(markdown: string, marker: string): string {
-	const lines = markdown.split("\n");
-	const startsWithBlock = /^(?: {4}|\t| {0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|```|~~~|\||<|(?:---|___|\*\*\*)\s*$))/.test(lines[0] ?? "");
-	const startsWithSetextHeading = lines.length > 1 && /^ {0,3}(?:=+|-+)\s*$/.test(lines[1] ?? "");
-	return startsWithBlock || startsWithSetextHeading ? `${marker}\n\n${markdown}` : `${marker} ${markdown}`;
+	// A one-item Markdown list supplies a native two-column hanging indent for wrapped lines and nested blocks.
+	primeTranscriptMarker(marker);
+	return markdown
+		.split("\n")
+		.map((line, index) => `${index === 0 ? "- " : "  "}${line}`)
+		.join("\n");
+}
+
+function compactThinkingSummaries(markdown: string): string {
+	return markdown.replace(/(\*\*[^\n]+\*\*)\n{2,}(?=\*\*[^\n]+\*\*(?:\n|$))/g, "$1  \n");
 }
 
 function registerTranscriptMarkers(pi: ExtensionAPI): void {
@@ -793,7 +836,7 @@ function registerTranscriptMarkers(pi: ExtensionAPI): void {
 	}).registerMarkdownTransformer;
 	register?.((markdown, context) => {
 		if (context.messageType === "user") return markMarkdown(markdown, "›");
-		if (context.messageType === "assistant-thinking") return markMarkdown(markdown, "◦");
+		if (context.messageType === "assistant-thinking") return markMarkdown(compactThinkingSummaries(markdown), "◦");
 		if (context.messageType === "assistant") return markMarkdown(markdown, "•");
 		return markdown;
 	});

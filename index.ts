@@ -813,7 +813,7 @@ function ensureActivityThemePatch(): ActivityThemePatch | undefined {
 		if (color === "mdListBullet" && text === "- " && state.pendingTranscriptMarker) {
 			const selected = state.pendingTranscriptMarker;
 			state.pendingTranscriptMarker = undefined;
-			return originalFg(color, `${selected} `);
+			return originalFg(selected === "◦" ? "dim" : color, `${selected} `);
 		}
 		if (color === "thinkingText") {
 			state.bypassThinkingItalic = true;

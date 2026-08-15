@@ -41,6 +41,8 @@ const renderMarkdown = (markdown, messageType, availableWidth = 120) => {
 		.map((line) => line.replace(ansiPattern, "").trimEnd());
 };
 assert.deepEqual(renderMarkdown("hello", "user"), ["› hello"]);
+const accentUser = transformMarkdown("hello", { isStreaming: false, availableWidth: 120, messageType: "user" });
+assert(new Markdown(accentUser, 0, 0, getMarkdownTheme()).render(120)[0].startsWith(globalTheme.getFgAnsi("mdListBullet")));
 assert.deepEqual(renderMarkdown("thinking", "assistant-thinking"), ["◦ thinking"]);
 const transformedThinking = transformMarkdown("**Inspecting**", {
 	isStreaming: false,
@@ -48,6 +50,8 @@ const transformedThinking = transformMarkdown("**Inspecting**", {
 	messageType: "assistant-thinking",
 });
 assert.doesNotMatch(transformedThinking, /\*\*/);
+const renderedThinking = new Markdown(transformedThinking, 0, 0, getMarkdownTheme()).render(120)[0];
+assert(renderedThinking.startsWith(globalTheme.getFgAnsi("dim")));
 const dimThinking = globalTheme.fg("thinkingText", "thinking");
 assert(dimThinking.startsWith(globalTheme.getFgAnsi("dim")));
 assert.equal(globalTheme.italic(dimThinking), dimThinking);
@@ -60,6 +64,8 @@ assert.deepEqual(
 	["◦ Inspecting", "", "  Supporting detail"],
 );
 assert.deepEqual(renderMarkdown("answer", "assistant"), ["• answer"]);
+const accentAssistant = transformMarkdown("answer", { isStreaming: false, availableWidth: 120, messageType: "assistant" });
+assert(new Markdown(accentAssistant, 0, 0, getMarkdownTheme()).render(120)[0].startsWith(globalTheme.getFgAnsi("mdListBullet")));
 assert.deepEqual(renderMarkdown("• literal bullet", "assistant"), ["• • literal bullet"]);
 const hangingBlock = renderMarkdown([
 	"The visible thinking block was:",

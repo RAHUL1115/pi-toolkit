@@ -785,29 +785,39 @@ function createAutocompleteProvider(pi: ExtensionAPI, current: AutocompleteProvi
 }
 
 const PI_THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
-const patchedTranscriptThemes = new WeakSet<object>();
+const TOOLKIT_THEME_PATCH_KEY = Symbol.for("pi-toolkit:activity-theme-patch");
+type ActivityThemePatch = { pendingTranscriptMarker?: string; bypassThinkingItalic: boolean };
+type PatchableTheme = {
+	fg?: (color: string, text: string) => string;
+	italic?: (text: string) => string;
+	[key: symbol]: unknown;
+};
 const separatedFinalBlocks = new Set<string>();
 let hasVisibleActivity = false;
-let pendingTranscriptMarker: string | undefined;
 
 function isStatusRender(): boolean {
 	return new Error().stack?.split("\n").some((line) => /\bshowStatus \(/.test(line)) ?? false;
 }
 
-function ensureActivityThemePatch(): void {
-	const activeTheme = (globalThis as unknown as Record<symbol, unknown>)[PI_THEME_KEY] as {
-		fg?: (color: string, text: string) => string;
-	} | undefined;
-	if (!activeTheme || typeof activeTheme.fg !== "function" || patchedTranscriptThemes.has(activeTheme)) return;
+function ensureActivityThemePatch(): ActivityThemePatch | undefined {
+	const activeTheme = (globalThis as unknown as Record<symbol, unknown>)[PI_THEME_KEY] as PatchableTheme | undefined;
+	if (!activeTheme || typeof activeTheme.fg !== "function") return undefined;
+	const existing = activeTheme[TOOLKIT_THEME_PATCH_KEY] as ActivityThemePatch | undefined;
+	if (existing) return existing;
 
+	const state: ActivityThemePatch = { bypassThinkingItalic: false };
 	const originalFg = activeTheme.fg.bind(activeTheme);
+	const originalItalic = activeTheme.italic?.bind(activeTheme);
 	activeTheme.fg = (color, text) => {
-		if (color === "mdListBullet" && text === "- " && pendingTranscriptMarker) {
-			const selected = pendingTranscriptMarker;
-			pendingTranscriptMarker = undefined;
+		if (color === "mdListBullet" && text === "- " && state.pendingTranscriptMarker) {
+			const selected = state.pendingTranscriptMarker;
+			state.pendingTranscriptMarker = undefined;
 			return originalFg(color, `${selected} `);
 		}
-		if (color === "thinkingText") return originalFg("dim", text);
+		if (color === "thinkingText") {
+			state.bypassThinkingItalic = true;
+			return originalFg("dim", text);
+		}
 		if (
 			color === "error"
 			&& /^(?:Operation aborted|Aborted after \d+ retry attempt|Response was truncated before completion\.|Error:)/.test(text)
@@ -815,12 +825,20 @@ function ensureActivityThemePatch(): void {
 		if (color === "dim" && isStatusRender()) return originalFg(color, ` ${text}`);
 		return originalFg(color, text);
 	};
-	patchedTranscriptThemes.add(activeTheme);
+	if (originalItalic) {
+		activeTheme.italic = (text) => {
+			if (!state.bypassThinkingItalic) return originalItalic(text);
+			state.bypassThinkingItalic = false;
+			return text;
+		};
+	}
+	activeTheme[TOOLKIT_THEME_PATCH_KEY] = state;
+	return state;
 }
 
 function primeTranscriptMarker(marker: string): void {
-	ensureActivityThemePatch();
-	pendingTranscriptMarker = marker;
+	const state = ensureActivityThemePatch();
+	if (state) state.pendingTranscriptMarker = marker;
 }
 
 function finalSeparator(width: number): string {

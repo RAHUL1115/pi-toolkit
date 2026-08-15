@@ -48,7 +48,9 @@ const transformedThinking = transformMarkdown("**Inspecting**", {
 	messageType: "assistant-thinking",
 });
 assert.doesNotMatch(transformedThinking, /\*\*/);
-assert(globalTheme.fg("thinkingText", "thinking").startsWith(globalTheme.getFgAnsi("dim")));
+const dimThinking = globalTheme.fg("thinkingText", "thinking");
+assert(dimThinking.startsWith(globalTheme.getFgAnsi("dim")));
+assert.equal(globalTheme.italic(dimThinking), dimThinking);
 assert.deepEqual(
 	renderMarkdown("**Inspecting**\n\n**Reviewing**\n\n**Planning**", "assistant-thinking"),
 	["◦ Inspecting", "  Reviewing", "  Planning"],

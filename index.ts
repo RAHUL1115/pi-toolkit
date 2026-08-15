@@ -807,6 +807,7 @@ function ensureActivityThemePatch(): void {
 			pendingTranscriptMarker = undefined;
 			return originalFg(color, `${selected} `);
 		}
+		if (color === "thinkingText") return originalFg("dim", text);
 		if (
 			color === "error"
 			&& /^(?:Operation aborted|Aborted after \d+ retry attempt|Response was truncated before completion\.|Error:)/.test(text)
@@ -840,7 +841,9 @@ function markMarkdown(markdown: string, marker: string): string {
 }
 
 function compactThinkingSummaries(markdown: string): string {
-	return markdown.replace(/(\*\*[^\n]+\*\*)\n{2,}(?=\*\*[^\n]+\*\*(?:\n|$))/g, "$1  \n");
+	return markdown
+		.replace(/(\*\*[^\n]+\*\*)\n{2,}(?=\*\*[^\n]+\*\*(?:\n|$))/g, "$1  \n")
+		.replace(/\*\*([^\n]+)\*\*/g, "$1");
 }
 
 function finalTextBlocks(message: Message): string[] {

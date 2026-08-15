@@ -42,6 +42,13 @@ const renderMarkdown = (markdown, messageType, availableWidth = 120) => {
 };
 assert.deepEqual(renderMarkdown("hello", "user"), ["› hello"]);
 assert.deepEqual(renderMarkdown("thinking", "assistant-thinking"), ["◦ thinking"]);
+const transformedThinking = transformMarkdown("**Inspecting**", {
+	isStreaming: false,
+	availableWidth: 120,
+	messageType: "assistant-thinking",
+});
+assert.doesNotMatch(transformedThinking, /\*\*/);
+assert(globalTheme.fg("thinkingText", "thinking").startsWith(globalTheme.getFgAnsi("dim")));
 assert.deepEqual(
 	renderMarkdown("**Inspecting**\n\n**Reviewing**\n\n**Planning**", "assistant-thinking"),
 	["◦ Inspecting", "  Reviewing", "  Planning"],

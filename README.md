@@ -137,7 +137,7 @@ When the installed Pi version supports Markdown transformers, the toolkit adds d
 | `│` | Wrapped tool-call text |
 | `└` | Tool output boundary |
 
-Markers do not modify stored messages or model context. User, assistant, and thinking blocks reserve a two-column gutter: the first line contains the marker and a space, while wrapped lines and nested Markdown continue beneath the content with two leading spaces. Abort and response-error statuses use `× ` in the same gutter. Consecutive bold thinking summaries remain in one activity block without blank lines.
+Markers do not modify stored messages or model context. User, assistant, and thinking blocks reserve a two-column gutter: the first line contains the marker and a space, while wrapped lines and nested Markdown continue beneath the content with two leading spaces. Abort and response-error statuses use `× ` in the same gutter; informational Pi status lines reserve the gutter with two spaces and no marker. Consecutive bold thinking summaries remain in one activity block without blank lines.
 
 The toolkit editor owns its one-column input padding instead of inheriting Pi's `editorPaddingX` value, keeping the editor content aligned with the transcript gutter when Pi's `editorPaddingX` and `outputPad` settings are both `0`.
 

@@ -788,6 +788,10 @@ const PI_THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 const patchedTranscriptThemes = new WeakSet<object>();
 let pendingTranscriptMarker: string | undefined;
 
+function isStatusRender(): boolean {
+	return new Error().stack?.split("\n").some((line) => /\bshowStatus \(/.test(line)) ?? false;
+}
+
 function ensureActivityThemePatch(): void {
 	const activeTheme = (globalThis as unknown as Record<symbol, unknown>)[PI_THEME_KEY] as {
 		fg?: (color: string, text: string) => string;
@@ -805,6 +809,7 @@ function ensureActivityThemePatch(): void {
 			color === "error"
 			&& /^(?:Operation aborted|Aborted after \d+ retry attempt|Response was truncated before completion\.|Error:)/.test(text)
 		) return originalFg(color, `× ${text}`);
+		if (color === "dim" && isStatusRender()) return originalFg(color, ` ${text}`);
 		return originalFg(color, text);
 	};
 	patchedTranscriptThemes.add(activeTheme);

@@ -63,6 +63,10 @@ assert(hangingBlock[0].startsWith("• "));
 assert(hangingBlock.some((line) => line.startsWith("  │ ")));
 assert(hangingBlock.slice(1).filter(Boolean).every((line) => line.startsWith("  ")));
 assert.equal(globalTheme.fg("error", "Operation aborted").replace(ansiPattern, ""), "× Operation aborted");
+const statusHarness = {
+	showStatus(message) { return globalTheme.fg("dim", message).replace(ansiPattern, ""); },
+};
+assert.equal(statusHarness.showStatus("Reloaded resources"), " Reloaded resources");
 const starts = extension.handlers.get("session_start");
 const updates = extension.handlers.get("message_update");
 const ends = extension.handlers.get("message_end");

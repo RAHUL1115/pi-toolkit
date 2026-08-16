@@ -10,6 +10,7 @@ process.on("exit", cleanup);
 cpSync(join(sourceRoot, "index.ts"), join(extensionRoot, "index.ts"));
 cpSync(join(sourceRoot, "pi-toolkit-lib"), join(extensionRoot, "pi-toolkit-lib"), { recursive: true });
 writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
+	autoSessionTitles: true,
 	compactTools: true,
 	ctrlBackspace: true,
 	dollarSkills: true,
@@ -29,6 +30,21 @@ assert.deepEqual(errors, []);
 const extension = extensions[0];
 assert(extension.commands.has("ptk-obs"));
 assert(extension.commands.has("ptk"));
+assert.equal(extension.handlers.get("agent_end")?.length, 2, "automatic titles add one agent_end handler when enabled");
+assert(extension.tools.has("ask_user_question"));
+const askUserQuestion = extension.tools.get("ask_user_question").definition;
+const duplicateQuestion = "Choose a runtime?";
+const invalidQuestionResult = await askUserQuestion.execute(
+	"ask-invalid",
+	{ questions: [
+		{ question: duplicateQuestion, header: "Runtime", options: [{ label: "Node" }, { label: "Deno" }], multiSelect: false },
+		{ question: duplicateQuestion, header: "Again", options: [{ label: "Node" }, { label: "Bun" }], multiSelect: false },
+	] },
+	undefined,
+	undefined,
+	{ mode: "tui" },
+);
+assert.match(invalidQuestionResult.content[0].text, /Duplicate question/);
 assert(!extension.commands.has("ptk-settings"));
 assert(!extension.commands.has("ptk-workflow-settings"));
 const transformMarkdown = extension.markdownTransformer;
@@ -470,6 +486,7 @@ assert.equal(realRendered.match(/single real component/g)?.length ?? 0, 1, realR
 assert.equal(realRendered.match(/failed/g)?.length ?? 0, 1, realRendered);
 
 writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
+	autoSessionTitles: false,
 	compactTools: true,
 	toolView: "compact",
 	ctrlBackspace: true,
@@ -478,6 +495,7 @@ writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 const { extensions: oneLineExtensions, errors: oneLineErrors } = await loadExtensions([extensionPath], extensionRoot);
 assert.deepEqual(oneLineErrors, []);
 const oneLineExtension = oneLineExtensions[0];
+assert.equal(oneLineExtension.handlers.get("agent_end")?.length, 1, "automatic titles register no handler when disabled");
 const oneLineStarts = oneLineExtension.handlers.get("session_start");
 const oneLineUpdates = oneLineExtension.handlers.get("message_update");
 await oneLineStarts[1]({}, {

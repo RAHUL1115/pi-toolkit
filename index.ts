@@ -30,7 +30,9 @@ import {
 	matchesKey,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import registerAskUserQuestion from "./pi-toolkit-lib/ask-user-question/register.js";
 import registerObservability from "./pi-toolkit-lib/observability.js";
+import registerAutomaticSessionTitles from "./pi-toolkit-lib/session-title.js";
 
 const SETTINGS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "pi-toolkit.json");
 const MAX_SUGGESTIONS = 20;
@@ -41,7 +43,7 @@ const SKILL_COMMAND = /^\/skill:([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\s+|$)/i;
 
 type ToolDetail = "collapsed" | "expanded";
 type ToolView = "one line" | "list" | "normal";
-type Settings = { compactTools: boolean; ctrlBackspace: boolean; dollarSkills: boolean; toolView: ToolView };
+type Settings = { autoSessionTitles: boolean; compactTools: boolean; ctrlBackspace: boolean; dollarSkills: boolean; toolView: ToolView };
 type Args = Record<string, unknown>;
 type Details = Record<string, unknown> | undefined;
 type RenderTheme = Parameters<NonNullable<ToolDefinition<any, any, any>["renderCall"]>>[1];
@@ -70,6 +72,7 @@ function loadSettings(): Settings {
 	try {
 		const stored = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
 		return {
+			autoSessionTitles: stored.autoSessionTitles !== false,
 			compactTools: stored.compactTools !== false,
 			ctrlBackspace: stored.ctrlBackspace !== false,
 			dollarSkills: stored.dollarSkills !== false,
@@ -78,7 +81,7 @@ function loadSettings(): Settings {
 				: stored.toolView === "normal" ? "normal" : "list",
 		};
 	} catch {
-		return { compactTools: true, ctrlBackspace: true, dollarSkills: true, toolView: "list" };
+		return { autoSessionTitles: true, compactTools: true, ctrlBackspace: true, dollarSkills: true, toolView: "list" };
 	}
 }
 
@@ -978,6 +981,7 @@ function registerDollarSkills(pi: ExtensionAPI): void {
 }
 
 export default function piToolkit(pi: ExtensionAPI): void {
+	registerAskUserQuestion(pi);
 	registerObservability(pi);
 	registerTranscriptMarkers(pi);
 	const settings = loadSettings();
@@ -985,6 +989,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	registerWorkflowEditor(pi, settings, toolControls);
 	registerFinalResponseTracking(pi);
 	if (settings.dollarSkills) registerDollarSkills(pi);
+	if (settings.autoSessionTitles) registerAutomaticSessionTitles(pi);
 
 	pi.registerCommand("ptk", {
 		description: "Toggle Pi Toolkit workflow features",
@@ -995,14 +1000,14 @@ export default function piToolkit(pi: ExtensionAPI): void {
 			}
 			let changed = false;
 			const items: SettingItem[] = [
-				{ id: "compactTools", label: "Compact tools", currentValue: settings.compactTools ? "on" : "off", values: ["on", "off"] },
 				{
-					id: "toolView",
-					label: "Collapsed tool view",
-					description: "Collapsed layout: aggregate only, aggregate with calls, or preview output.",
-					currentValue: settings.toolView,
-					values: ["one line", "list", "normal"],
+					id: "autoSessionTitles",
+					label: "Automatic session titles",
+					description: "Refreshes the session name after each turn with an available lightweight model; manual /name values are preserved.",
+					currentValue: settings.autoSessionTitles ? "on" : "off",
+					values: ["on", "off"],
 				},
+				{ id: "compactTools", label: "Compact tools", currentValue: settings.compactTools ? "on" : "off", values: ["on", "off"] },
 				{ id: "dollarSkills", label: "Dollar skills", currentValue: settings.dollarSkills ? "on" : "off", values: ["on", "off"] },
 				{
 					id: "ctrlBackspace",
@@ -1020,8 +1025,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 					items.length + 2,
 					getSettingsListTheme(),
 					(id, value) => {
-						if (id === "toolView") settings.toolView = value as ToolView;
-						else settings[id as "compactTools" | "ctrlBackspace" | "dollarSkills"] = value === "on";
+						settings[id as "autoSessionTitles" | "compactTools" | "ctrlBackspace" | "dollarSkills"] = value === "on";
 						saveSettings(settings);
 						changed = true;
 					},

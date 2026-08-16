@@ -1,6 +1,6 @@
 # Source provenance
 
-This package is a local composition of user-owned workflow features and a modified copy of a third-party observability extension. This file records the recoverable source lineage because this directory currently has no Git history.
+This package is a local composition of user-owned workflow features and modified copies of third-party extensions. This file records their source lineage.
 
 ## Provenance map
 
@@ -10,12 +10,22 @@ This package is a local composition of user-owned workflow features and a modifi
 | `pi-toolkit-lib/lib/footer-engine/**` | Copied/modified from `pi-observability` 1.3.2 | Four of five TypeScript files are byte-identical to the npm 1.3.2 package; `segments.ts` changes the Git icon. |
 | `pi-toolkit-lib/lib/storage/**` | Copied from `pi-observability` 1.3.2 | All six TypeScript files are byte-identical to the npm 1.3.2 package. |
 | `pi-toolkit-lib/lib/settings/**` | Modified from `pi-observability` 1.3.2 | The same settings modules remain, with Pi Toolkit footer/path options and namespaced global-settings persistence added locally. |
+| `pi-toolkit-lib/ask-user-question/**` | Copied/modified from `pi-askuserquestion` 1.0.0 | The component, schema, validation, and registration code were merged at upstream commit `e58609c9e9c8c4e8a0348c96eaad38dd7e6f0578`; registration now rejects every non-TUI mode explicitly. |
 | Compact grouped built-in rendering in `index.ts` | User-owned replacement for `pi-tool-display`; not a source copy | It serves a similar purpose, but a normalized token comparison found no shared 12-token code sequence with `pi-tool-display` 0.5.0. It uses Pi's exported built-in tool factories and a separate grouping design. |
 | `$skill` autocomplete/loading in `index.ts` | User-owned local workflow feature | No third-party source marker, package dependency, or matching source tree was found. |
 | Windows `Ctrl+Backspace` normalization in `index.ts` | User-owned feature consolidated from the former local `pi-ctrl-backspace` extension | The implementation translates VS Code/Windows Terminal `0x08` input to Pi's delete-word key and is independent of the observability code. |
 | Package entry point, workflow settings, README, and `pi-toolkit.json` | User-owned integration layer | These compose the feature areas into `pi-toolkit@0.1.0`. |
 
 ## Third-party source retained in this package
+
+### pi-askuserquestion 1.0.0
+
+- Repository: <https://github.com/ghoseb/pi-askuserquestion>
+- Source commit: [`e58609c9e9c8c4e8a0348c96eaad38dd7e6f0578`](https://github.com/ghoseb/pi-askuserquestion/commit/e58609c9e9c8c4e8a0348c96eaad38dd7e6f0578)
+- Author/license: Baishampayan Ghose, MIT
+- Local license copy: [`pi-toolkit-lib/LICENSE.pi-askuserquestion`](pi-toolkit-lib/LICENSE.pi-askuserquestion)
+
+The upstream component, schema, uniqueness validation, and tool registration are retained. Pi Toolkit changes only the registration export name, integration path, and non-TUI guard. The upstream component regression suite is retained under `test/ask-user-question.test.ts`.
 
 ### pi-observability 1.3.2
 
@@ -40,13 +50,6 @@ The MIT notice is retained. Keep the notice and this attribution whenever distri
 
 Pi Toolkit's compact renderer replaced this separately installed package but does not contain its source based on the current comparison. A stale former configuration remains outside this package at `~/.pi/agent/extensions/pi-tool-display/config.json`; it is historical state, not loaded source.
 
-## Reconstruction limits
+## Reconstruction basis
 
-The package directory has no `.git` repository, so file-level authorship and merge dates cannot be proven from commits. The lineage above is based on:
-
-1. current package source and retained license files;
-2. byte/diff comparison with published npm source archives;
-3. npm/Git tag metadata for the cited source commits; and
-4. surviving Pi configuration and prior local integration records.
-
-Initialize Git before further changes so future provenance is recorded directly rather than reconstructed.
+The historical observability lineage above was reconstructed from current source, retained license files, published npm archives, Git metadata, and surviving Pi configuration. New integrations are recorded directly in this repository's Git history.

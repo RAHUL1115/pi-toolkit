@@ -8,7 +8,9 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 |---|---|
 | Tool rendering | Groups consecutive built-in tool calls with collapsed, preview, and expanded layouts |
 | Transcript | Adds Codex-style activity markers to user, assistant, thinking, and tool content |
+| Session titles | Refreshes the session name after each turn using an available lightweight model |
 | Skills | Adds `$skill-name` autocomplete and prompt expansion |
+| User questions | Adds a structured `ask_user_question` tool with single-select, multi-select, and free-text answers |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
 | Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
 | Footer | Shows model, runtime, path, Git, context, tokens, TPS, and cost |
@@ -34,7 +36,7 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 
 | Command | Purpose |
 |---|---|
-| `/ptk` | Configure workflow features and the collapsed tool layout |
+| `/ptk` | Configure workflow feature toggles |
 | `/ptk-footer-settings` | Configure the footer, segments, presets, path display, and context thresholds |
 | `/ptk-obs` | Open the observability dashboard |
 
@@ -161,6 +163,18 @@ The TUI autocomplete provider:
 
 A leading standard `/skill:skill-name` command is also handled by the same workflow.
 
+## Ask user questions
+
+The `ask_user_question` tool lets the agent pause for structured clarification in TUI mode. It supports one to four questions, two to four choices per question, single- and multi-select answers, custom free-text answers, tabbed navigation, and a final review screen.
+
+Outside TUI mode, the tool returns an explanatory error and disables itself for the session.
+
+## Automatic session titles
+
+When **Automatic session titles** is enabled, the toolkit refreshes the current session name after every completed turn without blocking the main conversation. It uses the first available scoped model whose name contains Luna, Mini, Haiku, Flash, Lite, or Small; Luna is preferred. If no lightweight model is available, title generation is skipped silently.
+
+Generated titles survive resume and may continue changing with the conversation. A title set manually with `/name` is never overwritten. Model, authentication, timeout, or network failures do not affect the main turn.
+
 ## Repeat-paste expansion
 
 Pi normally replaces a sufficiently large paste with a marker such as:
@@ -204,17 +218,18 @@ Open `/ptk` in TUI mode:
 
 | Setting | Values | Default |
 |---|---|---|
+| Automatic session titles | `on`, `off` | `on` |
 | Compact tools | `on`, `off` | `on` |
-| Collapsed tool view | `one line`, `list`, `normal` | `list` |
 | Dollar skills | `on`, `off` | `on` |
 | Ctrl+Backspace word delete | `on`, `off` | `on` |
 
-Changes are written immediately to `pi-toolkit.json`. Closing the settings screen after a change reloads Pi.
+Changes are written immediately to `pi-toolkit.json`. Closing the settings screen after a change reloads Pi. The collapsed tool layout is intentionally absent from `/ptk`; use `Alt+O` to cycle it.
 
 Current configuration:
 
 ```json
 {
+  "autoSessionTitles": true,
   "compactTools": true,
   "ctrlBackspace": true,
   "dollarSkills": true,
@@ -222,7 +237,7 @@ Current configuration:
 }
 ```
 
-The legacy stored value `"toolView": "compact"` is interpreted as `"one line"`.
+`toolView` persists the last layout selected with `Alt+O`; it is not edited through `/ptk`. The legacy stored value `"compact"` is interpreted as `"one line"`.
 
 ## Observability footer
 
@@ -317,6 +332,7 @@ After an agent run, the toolkit displays a summary containing TPS, output/input/
 | Data | Location |
 |---|---|
 | Workflow settings | `pi-toolkit.json` beside `index.ts` |
+| Generated-title provenance | `pi-toolkit:auto-title` custom entries in the Pi session file |
 | Footer settings | `pi-toolkit.footer` in `~/.pi/agent/settings.json` |
 | Session history | `~/.pi/agent/observability/history.jsonl` |
 | Per-turn observability | `obs-turn` custom entries in the Pi session file |
@@ -343,13 +359,14 @@ Run the regression test:
 npm test
 ```
 
-The test covers grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, repeat-paste behavior, and command registration.
+The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, repeat-paste behavior, command registration, automatic session titles, and the interactive question component.
 
 ## Provenance
 
-The workflow, grouped-tool, skill, editor, and integration features are locally owned. The observability/footer subtree is a modified derivative of `pi-observability` 1.3.2 under the MIT License.
+The workflow, grouped-tool, skill, editor, and integration features are locally owned. The observability/footer subtree is a modified derivative of `pi-observability` 1.3.2, and the ask-user-question subtree is derived from `pi-askuserquestion` 1.0.0; both are under the MIT License.
 
 See:
 
 - [`PROVENANCE.md`](PROVENANCE.md)
 - [`pi-toolkit-lib/LICENSE.pi-observability`](pi-toolkit-lib/LICENSE.pi-observability)
+- [`pi-toolkit-lib/LICENSE.pi-askuserquestion`](pi-toolkit-lib/LICENSE.pi-askuserquestion)

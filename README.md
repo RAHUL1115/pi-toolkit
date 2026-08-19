@@ -9,7 +9,7 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 | Tool rendering | Groups consecutive built-in tool calls with collapsed, preview, and expanded layouts |
 | Transcript | Adds Codex-style activity markers to user, assistant, thinking, and tool content |
 | Session titles | Refreshes the session name after each turn using an available lightweight model |
-| Skills | Adds `$skill-name` autocomplete and prompt expansion |
+| Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
 | User questions | Adds a structured `ask_user_question` tool with single-select, multi-select, and free-text answers |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
 | Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
@@ -145,23 +145,27 @@ The toolkit editor owns a fixed one-column input padding instead of inheriting P
 
 ## Dollar skills
 
-When **Dollar skills** is enabled, skills can be referenced directly in a prompt:
+When **Dollar skills** is enabled, submit a line containing only skill selectors to activate them without starting an agent turn:
 
 ```text
-$ponytail make this implementation smaller
+$ponytail $tdd
 ```
 
-Multiple skills may be referenced in one prompt. Recognized `$skill-name` tokens are replaced with instructions to load or follow the matching Pi skill. Unknown `$name` tokens are left unchanged.
+The active set applies to subsequent requests until it is cleared. `$` lists available skills, `/skills` shows the active set, and `/skills-clear` clears it. Unknown selectors produce a warning. A selector mixed into a normal request is left untouched so the loader never silently discards prompt text; use a separate activation line first.
+
+At each `before_agent_start`, the toolkit reads every active skill file, strips YAML frontmatter, and appends labelled skill blocks to that turn's system prompt. Reads are lazy, so edits take effect on the next request without `/reload`. A failed or empty read is reported and skipped without injecting partial content.
+
+The active set is stored as branch-local custom session entries and restored from the latest entry on the active branch. Resume, fork, and tree navigation therefore follow conversation state rather than a global setting.
 
 The TUI autocomplete provider:
 
 - triggers on `$` at the start of input or after whitespace
 - searches Pi commands whose source is `skill`
-- ranks prefix matches first
+- uses subsequence matching with prefix, consecutive-character, and early-match ranking
 - shows skill descriptions
 - returns at most 20 suggestions
 
-A leading standard `/skill:skill-name` command is also handled by the same workflow.
+Pi's native `disable-model-invocation: true` behavior is preserved: those skills are absent from the default model-visible skill list. They are injected only after explicit `$skill-name` activation (or native `/skill:skill-name` invocation).
 
 ## Ask user questions
 
@@ -333,6 +337,7 @@ After an agent run, the toolkit displays a summary containing TPS, output/input/
 |---|---|
 | Workflow settings | `pi-toolkit.json` beside `index.ts` |
 | Generated-title provenance | `pi-toolkit:auto-title` custom entries in the Pi session file |
+| Active dollar skills | `pi-toolkit:skill-loader` custom entries on the active session branch |
 | Footer settings | `pi-toolkit.footer` in `~/.pi/agent/settings.json` |
 | Session history | `~/.pi/agent/observability/history.jsonl` |
 | Per-turn observability | `obs-turn` custom entries in the Pi session file |
@@ -359,7 +364,7 @@ Run the regression test:
 npm test
 ```
 
-The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, repeat-paste behavior, command registration, automatic session titles, and the interactive question component.
+The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, and the interactive question component.
 
 ## Provenance
 

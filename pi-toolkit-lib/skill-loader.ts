@@ -136,15 +136,20 @@ export default function registerSkillLoader(pi: ExtensionAPI): void {
 		}
 
 		const unknown = [...new Set(names.filter((name) => !available.has(name)))];
-		const added = [...new Set(names.filter((name) => available.has(name) && !loaded.has(name)))];
+		const selected = [...new Set(names.filter((name) => available.has(name)))];
+		const added = selected.filter((name) => !loaded.has(name));
 		for (const name of added) loaded.add(name);
 		if (added.length > 0) {
 			persist();
 			ctx.ui.notify(`Loaded skills: ${added.join(", ")}`, "info");
 		}
 		if (unknown.length > 0) ctx.ui.notify(`Unknown skills: ${unknown.join(", ")}`, "warning");
-		if (added.length === 0 && unknown.length === 0) ctx.ui.notify("Those skills are already active", "info");
-		return { action: "handled" };
+		if (selected.length === 0) return { action: "handled" };
+		if (added.length === 0) ctx.ui.notify("Those skills are already active", "info");
+		return {
+			action: "transform",
+			text: `Follow the active skill instructions now: ${selected.join(", ")}.`,
+		};
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {

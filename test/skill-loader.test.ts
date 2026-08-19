@@ -65,7 +65,7 @@ describe("dollar skill loader", () => {
 		return path;
 	}
 
-	it("activates explicit skills without an agent turn and injects fresh bodies", async () => {
+	it("activates explicit skills, invokes the agent, and injects fresh bodies", async () => {
 		const publicPath = skill("public-skill", "first public body");
 		const privatePath = skill("private-skill", "private body", true);
 		const { handlers, entries } = harness({ "public-skill": publicPath, "private-skill": privatePath });
@@ -74,7 +74,10 @@ describe("dollar skill loader", () => {
 
 		expect(await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx)).toBeUndefined();
 		expect(await handlers.get("input")![0]({ text: "$public-skill $private-skill", source: "interactive" }, ctx))
-			.toEqual({ action: "handled" });
+			.toEqual({
+				action: "transform",
+				text: "Follow the active skill instructions now: public-skill, private-skill.",
+			});
 		expect(entries.at(-1)?.data).toEqual({ loaded: ["public-skill", "private-skill"] });
 
 		const first = await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx);
@@ -138,7 +141,8 @@ describe("dollar skill loader", () => {
 		const suggestions = await provider.getSuggestions(["$wri"], 0, 4, { signal: new AbortController().signal });
 		expect(suggestions?.items.map((item) => item.value)).toEqual(["$writing", "$web-writing"]);
 
-		await handlers.get("input")![0]({ text: "$missing", source: "interactive" }, ctx);
+		expect(await handlers.get("input")![0]({ text: "$missing", source: "interactive" }, ctx))
+			.toEqual({ action: "transform", text: "Follow the active skill instructions now: missing." });
 		expect(await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx)).toBeUndefined();
 		expect(notifications.at(-1)?.message).toMatch(/^Could not load skill missing:/);
 	});

@@ -116,8 +116,7 @@ describe("dollar skill loader", () => {
 
 		const injected = await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx);
 		expect(injected.systemPrompt).toContain("alpha body");
-		await commands.get("skills").handler("", ctx);
-		expect(notifications.at(-1)?.message).toBe("Active skills: alpha");
+		expect(commands.has("skills")).toBe(false);
 		await commands.get("skills-clear").handler("", ctx);
 		expect(entries.at(-1)?.data).toEqual({ loaded: [] });
 		expect(await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx)).toBeUndefined();

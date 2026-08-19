@@ -151,7 +151,7 @@ When **Dollar skills** is enabled, submit a line containing only skill selectors
 $ponytail $tdd
 ```
 
-That turn asks the model to follow the newly active skill instructions, and the active set also applies to subsequent requests until cleared. `$` lists available skills without invoking the model, `/skills` shows the active set, and `/skills-clear` clears it. Unknown selectors produce a warning without invoking the model. A selector mixed into a normal request is left untouched so the loader never silently discards prompt text; use a separate activation line first.
+That turn asks the model to follow the newly active skill instructions, and the active set also applies to subsequent requests until cleared. `$` lists available skills without invoking the model, and `/skills-clear` clears the active set. Unknown selectors produce a warning without invoking the model. A selector mixed into a normal request is left untouched so the loader never silently discards prompt text; use a separate activation line first.
 
 At each `before_agent_start`, the toolkit reads every active skill file, strips YAML frontmatter, and appends labelled skill blocks to that turn's system prompt. Reads are lazy, so edits take effect on the next request without `/reload`. A failed or empty read is reported and skipped without injecting partial content.
 

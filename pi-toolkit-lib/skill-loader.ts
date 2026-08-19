@@ -173,13 +173,6 @@ export default function registerSkillLoader(pi: ExtensionAPI): void {
 		return { systemPrompt: `${event.systemPrompt}\n\n${blocks.join("\n\n")}` };
 	});
 
-	pi.registerCommand("skills", {
-		description: "Show active dollar skills",
-		handler: async (_args, ctx) => {
-			ctx.ui.notify(`Active skills: ${[...loaded].join(", ") || "none"}`, "info");
-		},
-	});
-
 	pi.registerCommand("skills-clear", {
 		description: "Clear active dollar skills",
 		handler: async (_args, ctx) => {

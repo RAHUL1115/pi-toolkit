@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { type CompactionResult, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-const TOOL_NAME = "compact_context";
+const TOOL_NAME = "context_tool";
 const COMMAND_NAME = "ptk-compact-context";
 type CompactContextRequest = {
 	customInstructions?: string;
@@ -48,7 +48,7 @@ function compact(ctx: ExtensionCommandContext, customInstructions?: string): Pro
 
 export default function registerCompactContext(pi: ExtensionAPI): void {
 	pi.registerCommand(COMMAND_NAME, {
-		description: "Complete a queued compact_context operation",
+		description: "Complete a queued context_tool operation",
 		handler: async (args, ctx) => {
 			let request: CompactContextRequest;
 			try {
@@ -76,7 +76,7 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 				pi.sendUserMessage(request.nextPrompt);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`compact_context failed: ${message}`, "error");
+				ctx.ui.notify(`context_tool failed: ${message}`, "error");
 			}
 		},
 	});
@@ -84,10 +84,10 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: TOOL_NAME,
 		label: "Compact Context",
-		description: "Compact the current Pi context using Pi's normal compaction settings, then submit the required next prompt. Pass new: true to skip compaction, start a blank chat, and submit the prompt there. Only call compact_context when the user explicitly requests compact_context by its exact name.",
+		description: "Compact the current Pi context using Pi's normal compaction settings, then submit the required next prompt. Pass new: true to skip compaction, start a blank chat, and submit the prompt there. Only call context_tool when the user explicitly requests context_tool by its exact name.",
 		promptSnippet: "Compact context only when explicitly named; new: true starts a blank chat without compaction",
 		promptGuidelines: [
-			"Call compact_context only when the user explicitly requests compact_context by its exact name; never call it proactively or infer consent.",
+			"Call context_tool only when the user explicitly requests context_tool by its exact name; never call it proactively or infer consent.",
 		],
 		parameters: Type.Object({
 			custom_instructions: Type.Optional(Type.String({ description: "Optional focus for Pi's compaction summary. Omit to use Pi's default compaction behavior." })),
@@ -96,12 +96,12 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const requestText = latestUserText(ctx.sessionManager.buildSessionContext().messages);
-			if (!/\bcompact_context\b/i.test(requestText)) {
-				throw new Error("compact_context requires the user to request compact_context by its exact name in their latest message");
+			if (!/\bcontext_tool\b/i.test(requestText)) {
+				throw new Error("context_tool requires the user to request context_tool by its exact name in their latest message");
 			}
 
 			const nextPrompt = text(params.next_prompt);
-			if (!nextPrompt) throw new Error("compact_context requires a non-empty next_prompt");
+			if (!nextPrompt) throw new Error("context_tool requires a non-empty next_prompt");
 			const request = {
 				customInstructions: text(params.custom_instructions),
 				new: params.new === true,

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import registerCompactContext from "../pi-toolkit-lib/compact-context.ts";
 
-function harness(userText = "please use compact_context now") {
+function harness(userText = "please use context_tool now") {
 	const commands = new Map<string, any>();
 	let tool: any;
 	const sendUserMessage = vi.fn();
@@ -48,7 +48,7 @@ function commandContext() {
 	return { appendCustomMessageEntry, compact, ctx, newSession, submitInNewSession };
 }
 
-describe("compact_context", () => {
+describe("context_tool", () => {
 	it("queues the internal command only after an exact-name request", async () => {
 		const { ctx, getTool, sendUserMessage } = harness();
 		const result = await getTool().execute("call-1", { next_prompt: "continue" }, undefined, undefined, ctx);

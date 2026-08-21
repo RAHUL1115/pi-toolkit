@@ -11,7 +11,7 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 | Session titles | Refreshes the session name after each turn using an available lightweight model |
 | Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
 | User questions | Adds a structured `ask_user_question` tool with single-select, multi-select, and free-text answers |
-| Context control | Adds an explicit-only `compact_context` tool for normal compaction or an opt-in blank chat |
+| Context control | Adds an explicit-only `context_tool` tool for normal compaction or an opt-in blank chat |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
 | Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
 | Footer | Shows model, runtime, path, Git, context, tokens, TPS, and cost |
@@ -176,7 +176,7 @@ Outside TUI mode, the tool returns an explanatory error and disables itself for 
 
 ## Compact context
 
-The `compact_context` tool is available to the model but may run only when the latest user message explicitly contains its exact name, `compact_context`. This guard prevents proactive compaction.
+The `context_tool` tool is available to the model but may run only when the latest user message explicitly contains its exact name, `context_tool`. This guard prevents proactive compaction.
 
 By default it performs ordinary Pi compaction in the current session without overrides, so Pi's configured model, summary prompt, `reserveTokens`, and `keepRecentTokens` behavior remain unchanged. Its fields are:
 

@@ -11,6 +11,7 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 | Session titles | Refreshes the session name after each turn using an available lightweight model |
 | Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
 | User questions | Adds a structured `ask_user_question` tool with single-select, multi-select, and free-text answers |
+| Context handoff | Adds an explicit-only `compact_context` tool that compacts into a fresh chat and can submit the next prompt |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
 | Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
 | Footer | Shows model, runtime, path, Git, context, tokens, TPS, and cost |
@@ -172,6 +173,17 @@ Pi's native `disable-model-invocation: true` behavior is preserved: those skills
 The `ask_user_question` tool lets the agent pause for structured clarification in TUI mode. It supports one to four questions, two to four choices per question, single- and multi-select answers, custom free-text answers, tabbed navigation, and a final review screen.
 
 Outside TUI mode, the tool returns an explanatory error and disables itself for the session.
+
+## Compact context
+
+The `compact_context` tool is available to the model but may run only when the latest user message explicitly contains its exact name, `compact_context`. This guard prevents proactive compaction.
+
+By default it calls Pi's native compaction without overrides, so Pi's configured model, summary prompt, `reserveTokens`, and `keepRecentTokens` behavior remain unchanged. The optional fields are:
+
+- `custom_instructions`: focus Pi's compaction summary
+- `next_prompt`: submit a prompt automatically after the handoff
+
+After compaction, the extension starts a new child session with the compacted active context stored as a hidden handoff message. The new chat therefore has no copied transcript. If `next_prompt` is omitted, the new chat remains idle.
 
 ## Automatic session titles
 
@@ -364,7 +376,7 @@ Run the regression test:
 npm test
 ```
 
-The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, and the interactive question component.
+The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component.
 
 ## Provenance
 

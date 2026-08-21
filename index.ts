@@ -29,6 +29,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import registerAskUserQuestion from "./pi-toolkit-lib/ask-user-question/register.js";
+import registerCompactContext from "./pi-toolkit-lib/compact-context.js";
 import registerObservability from "./pi-toolkit-lib/observability.js";
 import registerAutomaticSessionTitles from "./pi-toolkit-lib/session-title.js";
 import registerSkillLoader from "./pi-toolkit-lib/skill-loader.js";
@@ -829,6 +830,7 @@ function registerTranscriptMarkers(pi: ExtensionAPI): void {
 
 export default function piToolkit(pi: ExtensionAPI): void {
 	registerAskUserQuestion(pi);
+	registerCompactContext(pi);
 	registerObservability(pi);
 	registerTranscriptMarkers(pi);
 	const settings = loadSettings();

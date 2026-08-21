@@ -8,7 +8,8 @@ const HANDOFF_TYPE = "pi-toolkit:compact-context";
 
 type CompactContextRequest = {
 	customInstructions?: string;
-	nextPrompt?: string;
+	new?: boolean;
+	nextPrompt: string;
 };
 
 function text(value: unknown): string | undefined {
@@ -32,9 +33,12 @@ function encodeRequest(request: CompactContextRequest): string {
 
 function decodeRequest(value: string): CompactContextRequest {
 	const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as CompactContextRequest;
+	const nextPrompt = text(parsed.nextPrompt);
+	if (!nextPrompt) throw new Error("next_prompt is required");
 	return {
 		customInstructions: text(parsed.customInstructions),
-		nextPrompt: text(parsed.nextPrompt),
+		new: parsed.new === true,
+		nextPrompt,
 	};
 }
 
@@ -57,9 +61,14 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 			}
 
 			await ctx.waitForIdle();
-			ctx.ui.notify("Compacting context into a new chat...", "info");
+			ctx.ui.notify(request.new ? "Compacting context into a new chat..." : "Compacting context...", "info");
 			try {
 				const result = await compact(ctx, request.customInstructions);
+				if (!request.new) {
+					pi.sendUserMessage(request.nextPrompt);
+					return;
+				}
+
 				const parentSession = ctx.sessionManager.getSessionFile();
 				const compactedContext = serializeConversation(convertToLlm(ctx.sessionManager.buildSessionContext().messages));
 				const switched = await ctx.newSession({
@@ -73,8 +82,7 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 						);
 					},
 					withSession: async (nextCtx) => {
-						if (request.nextPrompt) await nextCtx.sendUserMessage(request.nextPrompt);
-						else nextCtx.ui.notify("Context compacted into a new chat", "info");
+						await nextCtx.sendUserMessage(request.nextPrompt);
 					},
 				});
 				if (switched.cancelled) ctx.ui.notify("New chat was cancelled", "warning");
@@ -88,14 +96,15 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: TOOL_NAME,
 		label: "Compact Context",
-		description: "Compact the current Pi context using Pi's normal compaction settings, move the compacted context into a fresh chat, and optionally submit the next prompt. Only call compact_context when the user explicitly requests compact_context by its exact name.",
-		promptSnippet: "Compact context into a fresh chat only when the user explicitly names compact_context",
+		description: "Compact the current Pi context using Pi's normal compaction settings, then submit the required next prompt. Pass new: true to move the compacted context and next prompt into a fresh chat. Only call compact_context when the user explicitly requests compact_context by its exact name.",
+		promptSnippet: "Compact context only when the user explicitly names compact_context; new chat requires new: true",
 		promptGuidelines: [
 			"Call compact_context only when the user explicitly requests compact_context by its exact name; never call it proactively or infer consent.",
 		],
 		parameters: Type.Object({
 			custom_instructions: Type.Optional(Type.String({ description: "Optional focus for Pi's compaction summary. Omit to use Pi's default compaction behavior." })),
-			next_prompt: Type.Optional(Type.String({ description: "Prompt to submit automatically in the fresh chat after compaction. Omit to leave the new chat idle." })),
+			new: Type.Optional(Type.Boolean({ description: "When true, move the compacted context into a fresh chat. Defaults to false, keeping normal Pi compaction in the current session." })),
+			next_prompt: Type.String({ minLength: 1, description: "Required prompt to submit automatically after compaction. The tool rejects empty or whitespace-only values." }),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const requestText = latestUserText(ctx.sessionManager.buildSessionContext().messages);
@@ -103,16 +112,19 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 				throw new Error("compact_context requires the user to request compact_context by its exact name in their latest message");
 			}
 
+			const nextPrompt = text(params.next_prompt);
+			if (!nextPrompt) throw new Error("compact_context requires a non-empty next_prompt");
 			const request = {
 				customInstructions: text(params.custom_instructions),
-				nextPrompt: text(params.next_prompt),
+				new: params.new === true,
+				nextPrompt,
 			};
 			pi.sendUserMessage(`/${COMMAND_NAME} ${encodeRequest(request)}`, {
 				deliverAs: "followUp",
 				expandPromptTemplates: true,
 			});
 			return {
-				content: [{ type: "text", text: "Queued context compaction and fresh-chat handoff." }],
+				content: [{ type: "text", text: request.new ? "Queued context compaction and fresh-chat handoff." : "Queued context compaction." }],
 				details: request,
 				terminate: true,
 			};

@@ -11,7 +11,7 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 | Session titles | Refreshes the session name after each turn using an available lightweight model |
 | Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
 | User questions | Adds a structured `ask_user_question` tool with single-select, multi-select, and free-text answers |
-| Context handoff | Adds an explicit-only `compact_context` tool that compacts into a fresh chat and can submit the next prompt |
+| Context handoff | Adds an explicit-only `compact_context` tool for normal compaction or an opt-in fresh-chat handoff |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
 | Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
 | Footer | Shows model, runtime, path, Git, context, tokens, TPS, and cost |
@@ -178,12 +178,13 @@ Outside TUI mode, the tool returns an explanatory error and disables itself for 
 
 The `compact_context` tool is available to the model but may run only when the latest user message explicitly contains its exact name, `compact_context`. This guard prevents proactive compaction.
 
-By default it calls Pi's native compaction without overrides, so Pi's configured model, summary prompt, `reserveTokens`, and `keepRecentTokens` behavior remain unchanged. The optional fields are:
+By default it performs ordinary Pi compaction in the current session without overrides, so Pi's configured model, summary prompt, `reserveTokens`, and `keepRecentTokens` behavior remain unchanged. Its fields are:
 
-- `custom_instructions`: focus Pi's compaction summary
-- `next_prompt`: submit a prompt automatically after the handoff
+- `next_prompt` (required): non-empty prompt submitted automatically after compaction
+- `custom_instructions` (optional): focus Pi's compaction summary
+- `new` (optional, default `false`): when `true`, start a fresh child session with the compacted active context stored as a hidden handoff message before submitting `next_prompt`
 
-After compaction, the extension starts a new child session with the compacted active context stored as a hidden handoff message. The new chat therefore has no copied transcript. If `next_prompt` is omitted, the new chat remains idle.
+With `new: true`, the fresh chat has no copied transcript. An empty or whitespace-only `next_prompt` rejects the tool without compacting.
 
 ## Automatic session titles
 

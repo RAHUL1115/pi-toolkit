@@ -28,7 +28,7 @@ function commandContext() {
 	const submitInNewSession = vi.fn();
 	const compact = vi.fn((options: any) => options.onComplete({ summary: "summary", firstKeptEntryId: "kept", tokensBefore: 123 }));
 	const newSession = vi.fn(async (options: any) => {
-		await options.setup({ appendCustomMessageEntry });
+		if (options.setup) await options.setup({ appendCustomMessageEntry });
 		await options.withSession({ sendUserMessage: submitInNewSession, ui: { notify: vi.fn() } });
 		return { cancelled: false };
 	});
@@ -84,20 +84,16 @@ describe("compact_context", () => {
 		expect(sendUserMessage).toHaveBeenLastCalledWith("continue the work");
 	});
 
-	it("starts a fresh hidden-context session only when new is true", async () => {
+	it("starts a blank chat without compaction when new is true", async () => {
 		const { commands, ctx, getTool, sendUserMessage } = harness();
 		await getTool().execute("call-1", { new: true, next_prompt: "continue the work" }, undefined, undefined, ctx);
 		const command = commandContext();
 
 		await commands.get("ptk-compact-context").handler(queuedPayload(sendUserMessage), command.ctx);
 
+		expect(command.compact).not.toHaveBeenCalled();
 		expect(command.newSession.mock.calls[0]![0].parentSession).toBe("old-session.jsonl");
-		expect(command.appendCustomMessageEntry).toHaveBeenCalledWith(
-			"pi-toolkit:compact-context",
-			expect.stringContaining("recent work"),
-			false,
-			{ tokensBefore: 123 },
-		);
+		expect(command.appendCustomMessageEntry).not.toHaveBeenCalled();
 		expect(command.submitInNewSession).toHaveBeenCalledWith("continue the work");
 		expect(sendUserMessage).toHaveBeenCalledTimes(1);
 	});

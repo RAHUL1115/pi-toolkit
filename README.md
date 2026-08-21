@@ -11,7 +11,7 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 | Session titles | Refreshes the session name after each turn using an available lightweight model |
 | Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
 | User questions | Adds a structured `ask_user_question` tool with single-select, multi-select, and free-text answers |
-| Context handoff | Adds an explicit-only `compact_context` tool for normal compaction or an opt-in fresh-chat handoff |
+| Context control | Adds an explicit-only `compact_context` tool for normal compaction or an opt-in blank chat |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
 | Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
 | Footer | Shows model, runtime, path, Git, context, tokens, TPS, and cost |
@@ -182,9 +182,9 @@ By default it performs ordinary Pi compaction in the current session without ove
 
 - `next_prompt` (required): non-empty prompt submitted automatically after compaction
 - `custom_instructions` (optional): focus Pi's compaction summary
-- `new` (optional, default `false`): when `true`, start a fresh child session with the compacted active context stored as a hidden handoff message before submitting `next_prompt`
+- `new` (optional, default `false`): when `true`, skip compaction, start a blank child session, and submit `next_prompt` there
 
-With `new: true`, the fresh chat has no copied transcript. An empty or whitespace-only `next_prompt` rejects the tool without compacting.
+With `new: true`, no old context is transferred into the new chat. An empty or whitespace-only `next_prompt` rejects the tool without compacting or creating a session.
 
 ## Automatic session titles
 

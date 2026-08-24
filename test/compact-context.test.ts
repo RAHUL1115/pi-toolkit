@@ -24,11 +24,12 @@ function queuedPayload(sendUserMessage: ReturnType<typeof vi.fn>): string {
 }
 
 function commandContext() {
-	const appendCustomMessageEntry = vi.fn();
+	const appendCustomEntry = vi.fn();
+	const appendNewSessionCustomEntry = vi.fn();
 	const submitInNewSession = vi.fn();
 	const compact = vi.fn((options: any) => options.onComplete({ summary: "summary", firstKeptEntryId: "kept", tokensBefore: 123 }));
 	const newSession = vi.fn(async (options: any) => {
-		if (options.setup) await options.setup({ appendCustomMessageEntry });
+		if (options.setup) await options.setup({ appendCustomEntry: appendNewSessionCustomEntry });
 		await options.withSession({ sendUserMessage: submitInNewSession, ui: { notify: vi.fn() } });
 		return { cancelled: false };
 	});
@@ -38,6 +39,7 @@ function commandContext() {
 		newSession,
 		ui: { notify: vi.fn() },
 		sessionManager: {
+			appendCustomEntry,
 			getSessionFile: () => "old-session.jsonl",
 			buildSessionContext: () => ({ messages: [
 				{ role: "compactionSummary", summary: "summary", tokensBefore: 123, timestamp: Date.now() },
@@ -45,7 +47,7 @@ function commandContext() {
 			] }),
 		},
 	} as any;
-	return { appendCustomMessageEntry, compact, ctx, newSession, submitInNewSession };
+	return { appendCustomEntry, appendNewSessionCustomEntry, compact, ctx, newSession, submitInNewSession };
 }
 
 describe("context_tool", () => {
@@ -81,6 +83,10 @@ describe("context_tool", () => {
 
 		expect(command.compact.mock.calls[0]![0].customInstructions).toBeUndefined();
 		expect(command.newSession).not.toHaveBeenCalled();
+		expect(command.appendCustomEntry).toHaveBeenCalledWith("pi-toolkit:context-tool", {
+			action: "compact",
+			createdBy: "context_tool",
+		});
 		expect(sendUserMessage).toHaveBeenLastCalledWith("continue the work");
 	});
 
@@ -92,8 +98,12 @@ describe("context_tool", () => {
 		await commands.get("ptk-compact-context").handler(queuedPayload(sendUserMessage), command.ctx);
 
 		expect(command.compact).not.toHaveBeenCalled();
-		expect(command.newSession.mock.calls[0]![0].parentSession).toBe("old-session.jsonl");
-		expect(command.appendCustomMessageEntry).not.toHaveBeenCalled();
+		expect(command.newSession.mock.calls[0]![0]).not.toHaveProperty("parentSession");
+		expect(command.appendNewSessionCustomEntry).toHaveBeenCalledWith("pi-toolkit:context-tool", {
+			action: "new",
+			createdBy: "context_tool",
+			sourceSession: "old-session.jsonl",
+		});
 		expect(command.submitInNewSession).toHaveBeenCalledWith("continue the work");
 		expect(sendUserMessage).toHaveBeenCalledTimes(1);
 	});

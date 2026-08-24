@@ -4,6 +4,7 @@ import { Type } from "typebox";
 
 const TOOL_NAME = "context_tool";
 const COMMAND_NAME = "ptk-compact-context";
+const METADATA_TYPE = "pi-toolkit:context-tool";
 type CompactContextRequest = {
 	customInstructions?: string;
 	new?: boolean;
@@ -62,8 +63,11 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 			ctx.ui.notify(request.new ? "Starting a new chat..." : "Compacting context...", "info");
 			try {
 				if (request.new) {
+					const sourceSession = ctx.sessionManager.getSessionFile() ?? null;
 					const switched = await ctx.newSession({
-						parentSession: ctx.sessionManager.getSessionFile(),
+						setup: async (sessionManager) => {
+							sessionManager.appendCustomEntry(METADATA_TYPE, { action: "new", createdBy: TOOL_NAME, sourceSession });
+						},
 						withSession: async (nextCtx) => {
 							await nextCtx.sendUserMessage(request.nextPrompt);
 						},
@@ -73,6 +77,7 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 				}
 
 				await compact(ctx, request.customInstructions);
+				ctx.sessionManager.appendCustomEntry(METADATA_TYPE, { action: "compact", createdBy: TOOL_NAME });
 				pi.sendUserMessage(request.nextPrompt);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

@@ -184,7 +184,7 @@ By default it performs ordinary Pi compaction in the current session without ove
 - `custom_instructions` (optional): focus Pi's compaction summary
 - `new` (optional, default `false`): when `true`, skip compaction, start a blank child session, and submit `next_prompt` there
 
-With `new: true`, no old context is transferred into the new chat. An empty or whitespace-only `next_prompt` rejects the tool without compacting or creating a session.
+With `new: true`, no old context is transferred into the new chat. The new session remains a standalone entry in the session picker rather than appearing as a child. Both operations record an invisible `pi-toolkit:context-tool` custom entry for inspection without changing session-list presentation or LLM context. An empty or whitespace-only `next_prompt` rejects the tool without compacting or creating a session.
 
 ## Automatic session titles
 

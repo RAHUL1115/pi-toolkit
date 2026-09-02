@@ -20,6 +20,12 @@ export const builtinRenderers: Record<string, SegmentRenderer> = {
     return theme.fg(thinkingColor(thinkingLevel), text) + tier;
   },
 
+  backgroundShells(input) {
+    return input.backgroundShells > 0
+      ? input.theme.fg("accent", `bg tasks:${input.backgroundShells}`)
+      : "";
+  },
+
   runtime(input) {
     return input.theme.fg("dim", `⏱ ${fmtDuration(input.runtimeMs)}`);
   },

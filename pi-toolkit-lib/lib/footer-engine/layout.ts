@@ -4,7 +4,7 @@ import type { LayoutAssembler } from "./types.js";
 export const defaultAssembler: LayoutAssembler = (segments, width, theme) => {
   const sep = " " + theme.fg("dim", "▸") + " ";
 
-  const leftParts = [segments["modelThink"]].filter(Boolean);
+  const leftParts = [segments["modelThink"], segments["backgroundShells"]].filter(Boolean);
   const rightParts = [
     segments["contextUsage"],
     segments["tokens"],
@@ -35,7 +35,7 @@ export const defaultAssembler: LayoutAssembler = (segments, width, theme) => {
     return line;
   }
 
-  const line1 = fitLine([segments["modelThink"], segments["pwd"], segments["git"]]);
+  const line1 = fitLine([segments["modelThink"], segments["backgroundShells"], segments["pwd"], segments["git"]]);
   const line2 = fitLine([
     segments["runtime"],
     segments["contextUsage"],

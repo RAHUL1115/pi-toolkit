@@ -79,6 +79,7 @@ interface SessionState {
   fastModeSupported: boolean;
   fastModeEnabled: boolean;
   serviceTier: string | null;
+  backgroundShells: number;
   settings: SettingsConfig;
 }
 
@@ -297,6 +298,7 @@ export default function (pi: ExtensionAPI) {
     fastModeSupported: false,
     fastModeEnabled: false,
     serviceTier: null,
+    backgroundShells: 0,
     settings: {
       version: 1,
       preset: "standard",
@@ -321,6 +323,11 @@ export default function (pi: ExtensionAPI) {
 
   /* ─── Lifecycle ─── */
 
+  pi.events.on("background-bash:count", (data) => {
+    const running = (data as { running?: unknown })?.running;
+    state.backgroundShells = typeof running === "number" ? running : 0;
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     state.startTime = getSessionStartTime(ctx);
     state.turns = scanHistoricalTurns(ctx);
@@ -331,6 +338,7 @@ export default function (pi: ExtensionAPI) {
     state.fastModeSupported = supportsFastMode(ctx);
     state.fastModeEnabled = false;
     state.serviceTier = null;
+    state.backgroundShells = 0;
     state.settings = await loadSettings(settingsStorage);
 
     if (state.settings.footerEnabled && ctx.hasUI) {
@@ -557,6 +565,7 @@ export default function (pi: ExtensionAPI) {
             fastModeSupported: state.fastModeSupported,
             fastModeEnabled: state.fastModeEnabled,
             serviceTier: state.serviceTier,
+            backgroundShells: state.backgroundShells,
             contextUsage: ctx.getContextUsage() ?? null,
             cwd: ctx.cwd,
             showFullPath: state.settings.showFullPath,

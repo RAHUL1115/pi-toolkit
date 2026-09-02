@@ -11,6 +11,7 @@ This package is a local composition of user-owned workflow features and modified
 | `pi-toolkit-lib/lib/storage/**` | Copied from `pi-observability` 1.3.2 | All six TypeScript files are byte-identical to the npm 1.3.2 package. |
 | `pi-toolkit-lib/lib/settings/**` | Modified from `pi-observability` 1.3.2 | The same settings modules remain, with Pi Toolkit footer/path options and namespaced global-settings persistence added locally. |
 | `pi-toolkit-lib/ask-user-question/**` | Copied/modified from `pi-askuserquestion` 1.0.0 | The component, schema, validation, and registration code were merged at upstream commit `e58609c9e9c8c4e8a0348c96eaad38dd7e6f0578`; registration now rejects every non-TUI mode explicitly. |
+| `pi-toolkit-lib/unified-subagents/**` | Copied/modified from local `pi-unified-subagents` snapshot `4b581fa99dc13f1a4295f2935cdf0205a0ab9443` | The complete source was moved under Pi Toolkit and its default factory became a private registrar invoked by the sole package entrypoint. Tests and documentation are retained under `test/unified-subagents/**` and `docs/unified-subagents/**`. |
 | Compact grouped built-in rendering in `index.ts` | User-owned replacement for `pi-tool-display`; not a source copy | It serves a similar purpose, but a normalized token comparison found no shared 12-token code sequence with `pi-tool-display` 0.5.0. It uses Pi's exported built-in tool factories and a separate grouping design. |
 | `$skill` autocomplete/loading in `index.ts` | User-owned local workflow feature | No third-party source marker, package dependency, or matching source tree was found. |
 | Windows `Ctrl+Backspace` normalization in `index.ts` | User-owned feature consolidated from the former local `pi-ctrl-backspace` extension | The implementation translates VS Code/Windows Terminal `0x08` input to Pi's delete-word key and is independent of the observability code. |
@@ -38,6 +39,18 @@ The upstream component, schema, uniqueness validation, and tool registration are
 Comparison against the published 1.3.2 tarball found 19 corresponding TypeScript files: 10 byte-identical and 9 locally modified. The aggregate local delta is concentrated in branding/commands, footer controls, the branch icon, and moving footer configuration under `pi-toolkit.footer` in Pi's global settings.
 
 The MIT notice is retained. Keep the notice and this attribution whenever distributing substantial portions of `pi-toolkit-lib`.
+
+### pi-unified-subagents snapshot 4b581fa
+
+- Local repository: <https://github.com/RAHUL1115/pi-unified-subagents>
+- Consolidated snapshot: [`4b581fa99dc13f1a4295f2935cdf0205a0ab9443`](https://github.com/RAHUL1115/pi-unified-subagents/commit/4b581fa99dc13f1a4295f2935cdf0205a0ab9443)
+- Upstream repository: <https://github.com/tintinweb/pi-subagents>
+- Upstream baseline: `v0.18.0`, with later upstream commits included by the consolidation snapshot
+- Author/license: tintinweb and contributors, MIT
+- Local license copy: [`pi-toolkit-lib/LICENSE.pi-unified-subagents`](pi-toolkit-lib/LICENSE.pi-unified-subagents)
+- Retained documentation snapshot: [`docs/unified-subagents/README.md`](docs/unified-subagents/README.md)
+
+The source is retained as one internal module tree. Its tool names (`Agent`, `get_subagent_result`, and `steer_subagent`), `subagents:*` event/RPC names, `Symbol.for("pi-subagents:manager")` manager handle, `.pi/agents` and `.pi/subagents.json` conventions, child-session guard, output-transcript behavior, and persisted settings remain unchanged. Only relative integration paths and the factory export/registration seam changed.
 
 ## Historical influence not copied into this package
 

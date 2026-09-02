@@ -27,8 +27,13 @@ initTheme("dark");
 const { extensions, errors } = await loadExtensions([extensionPath], extensionRoot);
 assert.deepEqual(errors, []);
 
+assert.equal(extensions.length, 1, "root loader composes every toolkit module into one extension");
 const extension = extensions[0];
 assert(extension.commands.has("ptk-obs"));
+assert(extension.commands.has("agents"));
+for (const tool of ["Agent", "get_subagent_result", "steer_subagent", "bash_output", "bash_jobs", "bash_stop"]) {
+	assert(extension.tools.has(tool), `root loader registers ${tool}`);
+}
 assert(extension.commands.has("ptk"));
 assert.equal(extension.handlers.get("agent_end")?.length, 2, "automatic titles add one agent_end handler when enabled");
 assert(extension.tools.has("ask_user_question"));

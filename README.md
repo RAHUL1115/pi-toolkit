@@ -7,6 +7,8 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 | Area | Custom behavior |
 |---|---|
 | Tool rendering | Groups consecutive built-in tool calls with collapsed, preview, and expanded layouts |
+| Background tasks | Adds Claude Code-style background execution, `Ctrl+B` detachment, completion notifications, and a `/tasks` manager |
+| Unified subagents | Runs Pi, Claude Code, and Codex subagents through one `Agent` tool, shared FleetView, steering, results, schedules, and transcripts |
 | Transcript | Adds Codex-style activity markers to user, assistant, thinking, and tool content |
 | Session titles | Refreshes the session name after each turn using an available lightweight model |
 | Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
@@ -40,6 +42,8 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 | `/ptk` | Configure workflow feature toggles |
 | `/ptk-footer-settings` | Configure the footer, segments, presets, path display, and context thresholds |
 | `/ptk-obs` | Open the observability dashboard |
+| `/tasks` | Show and delete background tasks |
+| `/agents` | Manage agents, schedules, running jobs, and unified-subagent settings |
 
 The old `/ptk-settings` and `/ptk-workflow-settings` names are intentionally removed.
 
@@ -49,6 +53,7 @@ The old `/ptk-settings` and `/ptk-workflow-settings` names are intentionally rem
 |---|---|
 | `Ctrl+O` | Toggle grouped tool output between collapsed and fully expanded |
 | `Alt+O` | Cycle the collapsed layout: `one line` → `list` → `normal` |
+| `Ctrl+B` | Detach a blocking foreground agent first; otherwise detach foreground Bash |
 | `Ctrl+Backspace` | Delete the previous word on supported Windows terminals when enabled |
 
 `Ctrl+O` uses Pi's configurable `app.tools.expand` action. `Alt+O` is currently fixed by the extension and remains distinguishable from `Ctrl+O` without terminal-specific configuration.
@@ -127,6 +132,39 @@ Output bodies remain hidden while any call in the group is still running.
 | Empty output | `done` |
 
 The renderer follows Pi's global `outputPad` setting.
+
+## Background tasks
+
+The toolkit extends Pi's existing `bash` tool with an optional `run_in_background` boolean while preserving Pi's built-in output handling and rendering.
+
+```json
+{
+  "command": "npm run dev",
+  "run_in_background": true
+}
+```
+
+Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. While any are running, the footer shows `bg tasks:N`. Open `/tasks` to see session tasks; select one and press `x` twice to stop and delete it. The agent can also use:
+
+| Tool | Purpose |
+|---|---|
+| `bash_output` | Read current status and the last 2,000 lines or 50KB of output |
+| `bash_jobs` | List tasks started in the current Pi session |
+| `bash_stop` | Stop a task and its child process tree |
+
+The existing `timeout` argument remains available and automatically terminates a background task when reached. When a background task exits, fails, is stopped, or times out, the toolkit sends only its final status and temporary log path to the main agent as a follow-up notification and triggers the next turn. Output enters context only when the agent explicitly calls `bash_output`, which remains bounded to 2,000 lines or 50KB. Active tasks are stopped during reload, session replacement, and orderly Pi shutdown. Task state is intentionally in-memory and does not survive a restart.
+
+FleetView's terminal-input handler runs before editor shortcuts. Therefore `Ctrl+B` detaches a blocking foreground agent when one exists and consumes the key; when it does not, FleetView deliberately passes the key through to the background-task shortcut.
+
+## Unified subagents
+
+The toolkit's sole extension entrypoint privately registers the unified-subagent module. It preserves the established `Agent`, `get_subagent_result`, and `steer_subagent` tools, `/agents` UI, FleetView, schedules, child-session protection, persisted transcripts, output files, and `subagents:*` extension interfaces. The `Agent` tool selects a Pi, Claude Code, or Codex harness through its `harness` argument or agent frontmatter.
+
+FleetView is the only live agent-progress surface: the legacy `Agents` widget above the editor is always suppressed, and Fleet rows below the editor show status, tool uses, token/context usage, elapsed time, and current activity. Disabling FleetView hides live progress rather than restoring the legacy widget. Final `Agent` tool results and session records remain unchanged. The full-screen conversation viewer caches finalized transcript history, rebuilds only the streaming tail, and coalesces delta paints so long sessions stay responsive without changing compaction behavior. Use `Home`/`Ctrl+Home` to jump to the transcript start and `End`/`Ctrl+End` to return to the live bottom.
+
+Project agent definitions remain in `.pi/agents/*.md`; project settings remain in `.pi/subagents.json`, with global settings under Pi's normal agent directory. Existing identifiers and persisted data formats are unchanged by the consolidation.
+
+The complete imported user guide, architecture notes, examples, changelog, and upstream attribution are retained at [`docs/unified-subagents/README.md`](docs/unified-subagents/README.md). Source provenance is recorded in [`PROVENANCE.md`](PROVENANCE.md).
 
 ## Transcript markers
 
@@ -363,11 +401,12 @@ Legacy footer settings under `~/.pi/agent/observability/settings.json` are migra
 
 - Most workflow, editor, settings, and dashboard features require TUI mode.
 - Only the seven listed built-in tools participate in grouped rendering.
-- `Ctrl+Shift+O` is not currently configurable through Pi keybindings.
+- `Alt+O` is not currently configurable through Pi keybindings.
 - Repeat-paste expansion relies on Pi editor internals and may require adjustment after upstream editor changes.
 - Transcript markers are skipped on Pi versions without Markdown-transformer support.
 - The custom footer replaces information shown only by Pi's stock footer or other footer implementations.
 - Session history may miss the final run if Pi is force-killed without shutdown.
+- Background tasks are session-scoped; a force-killed Pi process may leave an external process behind.
 
 ## Development
 
@@ -377,7 +416,7 @@ Run the regression test:
 npm test
 ```
 
-The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component.
+The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, background-task execution and management, 60-second automatic detachment, `Ctrl+B` detachment, completion notifications and cancellation, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component.
 
 ## Provenance
 

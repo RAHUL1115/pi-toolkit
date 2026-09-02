@@ -3,7 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	CustomEditor,
-	createBashToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,
 	createGrepToolDefinition,
@@ -16,6 +15,7 @@ import {
 	rawKeyHint,
 	type ExtensionAPI,
 	type ExtensionContext,
+	type SessionManager,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -29,10 +29,12 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import registerAskUserQuestion from "./pi-toolkit-lib/ask-user-question/register.js";
+import { registerBackgroundBash } from "./pi-toolkit-lib/background-bash.js";
 import registerCompactContext from "./pi-toolkit-lib/compact-context.js";
 import registerObservability from "./pi-toolkit-lib/observability.js";
 import registerAutomaticSessionTitles from "./pi-toolkit-lib/session-title.js";
 import registerSkillLoader from "./pi-toolkit-lib/skill-loader.js";
+import { registerUnifiedSubagents } from "./pi-toolkit-lib/unified-subagents/index.js";
 
 const SETTINGS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "pi-toolkit.json");
 const READ_PREVIEW_EDGE_LINES = 10;
@@ -62,7 +64,7 @@ type ToolGroup = {
 	theme?: RenderTheme;
 };
 type CompactState = { call?: GroupCall };
-type Message = ReturnType<ExtensionContext["sessionManager"]["buildSessionContext"]>["messages"][number];
+type Message = ReturnType<SessionManager["buildSessionContext"]>["messages"][number];
 
 function loadSettings(): Settings {
 	try {
@@ -361,7 +363,11 @@ function registerWorkflowEditor(pi: ExtensionAPI, settings: Settings, controls?:
 	});
 }
 
-function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolControls {
+function registerCompactTools(
+	pi: ExtensionAPI,
+	settings: Settings,
+	backgroundBash: ToolDefinition<any, any, any>,
+): ToolControls {
 	const cwd = process.cwd();
 	const outputPad = loadOutputPad();
 	const supported = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
@@ -386,7 +392,7 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolControl
 		for (const call of group.calls) counts.set(call.tool, (counts.get(call.tool) ?? 0) + 1);
 		const countText = [...counts].map(([name, count]) => `${count} ${name}`).join(" · ");
 		const running = group.calls.some((call) => call.partial);
-		const viewHint = detail === "collapsed" ? ` · ${rawKeyHint("ctrl+shift+o", "view")}` : "";
+		const viewHint = detail === "collapsed" ? ` · ${rawKeyHint("alt+o", "view")}` : "";
 		const hint = theme.fg("dim", ` · ${keyHint("app.tools.expand", detail === "collapsed" ? "expand" : "collapse")}${viewHint}`);
 		const status = (call: GroupCall): string => call.partial
 			? theme.fg("warning", " …")
@@ -562,15 +568,15 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolControl
 
 	pi.on("session_start", (_event, ctx) => {
 		detail = ctx.ui.getToolsExpanded() ? "expanded" : "collapsed";
-		rebuildFromMessages(ctx.sessionManager.buildSessionContext().messages);
+		rebuildFromMessages((ctx.sessionManager as SessionManager).buildSessionContext().messages);
 	});
 
 	pi.on("session_tree", (_event, ctx) => {
-		rebuildFromMessages(ctx.sessionManager.buildSessionContext().messages);
+		rebuildFromMessages((ctx.sessionManager as SessionManager).buildSessionContext().messages);
 	});
 
 	pi.on("session_compact", (_event, ctx) => {
-		rebuildFromMessages(ctx.sessionManager.buildSessionContext().messages);
+		rebuildFromMessages((ctx.sessionManager as SessionManager).buildSessionContext().messages);
 	});
 
 	pi.on("message_update", (event) => {
@@ -605,7 +611,7 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolControl
 
 	const toolDefinitions = [
 		createReadToolDefinition(cwd),
-		createBashToolDefinition(cwd),
+		backgroundBash,
 		createEditToolDefinition(cwd),
 		createWriteToolDefinition(cwd),
 		createGrepToolDefinition(cwd),
@@ -618,14 +624,15 @@ function registerCompactTools(pi: ExtensionAPI, settings: Settings): ToolControl
 		pi.registerTool({
 			...tool,
 			renderShell: "self",
-			renderCall(args: Args, theme, context) {
+			renderCall(args, theme, context) {
+				const callArgs = args as Args;
 				detail = context.expanded ? "expanded" : "collapsed";
 				let call = calls.get(context.toolCallId);
 				if (!call) {
-					makeGroup([{ id: context.toolCallId, tool: tool.name, args }]);
+					makeGroup([{ id: context.toolCallId, tool: tool.name, args: callArgs }]);
 					call = calls.get(context.toolCallId)!;
 				}
-				call.args = args;
+				call.args = callArgs;
 				context.state.call = call;
 				const shell = context.lastComponent instanceof Container ? context.lastComponent : new Container();
 				shells.set(call.id, shell);
@@ -771,9 +778,8 @@ function finalTextBlocks(message: Message): string[] {
 		|| message.stopReason === "length"
 	) return [];
 	return message.content
-		.filter((part) => part.type === "text" && part.text.trim())
-		.slice(0, 1)
-		.map((part) => part.text.trim());
+		.flatMap((part) => part.type === "text" && part.text.trim() ? [part.text.trim()] : [])
+		.slice(0, 1);
 }
 
 function trackVisibleActivity(message: Message): void {
@@ -806,7 +812,7 @@ function registerFinalResponseTracking(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => {
 		separatedFinalBlocks.clear();
 		hasVisibleActivity = false;
-		for (const message of ctx.sessionManager.buildSessionContext().messages) trackVisibleActivity(message);
+		for (const message of (ctx.sessionManager as SessionManager).buildSessionContext().messages) trackVisibleActivity(message);
 	});
 	pi.on("message_end", (event) => trackVisibleActivity(event.message));
 }
@@ -834,11 +840,14 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	registerObservability(pi);
 	registerTranscriptMarkers(pi);
 	const settings = loadSettings();
-	const toolControls = settings.compactTools ? registerCompactTools(pi, settings) : undefined;
+	const backgroundBash = registerBackgroundBash(pi);
+	const toolControls = settings.compactTools ? registerCompactTools(pi, settings, backgroundBash) : undefined;
+	if (!settings.compactTools) pi.registerTool(backgroundBash);
 	registerWorkflowEditor(pi, settings, toolControls);
 	registerFinalResponseTracking(pi);
 	if (settings.dollarSkills) registerSkillLoader(pi);
 	if (settings.autoSessionTitles) registerAutomaticSessionTitles(pi);
+	registerUnifiedSubagents(pi);
 
 	pi.registerCommand("ptk", {
 		description: "Toggle Pi Toolkit workflow features",

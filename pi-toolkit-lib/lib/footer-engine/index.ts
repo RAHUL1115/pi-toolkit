@@ -26,7 +26,7 @@ import type { FooterInput, FooterEngineOptions } from "./types.js";
 export function renderFooter(input: FooterInput, width: number): string[] {
   const segments: Record<string, string> = {};
   for (const [key, renderer] of Object.entries(builtinRenderers)) {
-    if (input.settings.segments[key as keyof FooterInput["settings"]["segments"]]) {
+    if (key === "backgroundShells" || input.settings.segments[key as keyof FooterInput["settings"]["segments"]]) {
       segments[key] = renderer(input);
     } else {
       segments[key] = "";
@@ -43,7 +43,7 @@ export function createFooterEngine(options: FooterEngineOptions) {
     render(input: FooterInput, width: number): string[] {
       const segments: Record<string, string> = {};
       for (const [key, renderer] of Object.entries(segmentRenderers)) {
-        if (input.settings.segments[key as keyof FooterInput["settings"]["segments"]]) {
+        if (key === "backgroundShells" || input.settings.segments[key as keyof FooterInput["settings"]["segments"]]) {
           segments[key] = renderer(input);
         } else {
           segments[key] = "";

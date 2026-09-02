@@ -32,6 +32,7 @@ export interface FooterInput {
   fastModeSupported: boolean;
   fastModeEnabled: boolean;
   serviceTier: string | null;
+  backgroundShells: number;
   contextUsage: ContextUsage | null;
   cwd: string;
   showFullPath: boolean;

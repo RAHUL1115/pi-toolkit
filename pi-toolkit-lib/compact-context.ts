@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { type CompactionResult, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { type CompactionResult, type ExtensionAPI, type ExtensionCommandContext, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 const TOOL_NAME = "context_tool";
@@ -17,12 +17,12 @@ function text(value: unknown): string | undefined {
 	return trimmed || undefined;
 }
 
-function latestUserText(messages: any[]): string {
+function latestUserText(messages: Array<{ role?: string; content?: string | Array<{ type?: string; text?: string }> }>): string {
 	const message = messages.findLast((candidate) => candidate.role === "user");
 	if (!message) return "";
 	if (typeof message.content === "string") return message.content;
 	return Array.isArray(message.content)
-		? message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n")
+		? message.content.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n")
 		: "";
 }
 
@@ -77,7 +77,7 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 				}
 
 				await compact(ctx, request.customInstructions);
-				ctx.sessionManager.appendCustomEntry(METADATA_TYPE, { action: "compact", createdBy: TOOL_NAME });
+				(ctx.sessionManager as SessionManager).appendCustomEntry(METADATA_TYPE, { action: "compact", createdBy: TOOL_NAME });
 				pi.sendUserMessage(request.nextPrompt);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
@@ -100,7 +100,7 @@ export default function registerCompactContext(pi: ExtensionAPI): void {
 			next_prompt: Type.String({ minLength: 1, description: "Required prompt to submit automatically after compaction. The tool rejects empty or whitespace-only values." }),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const requestText = latestUserText(ctx.sessionManager.buildSessionContext().messages);
+			const requestText = latestUserText((ctx.sessionManager as SessionManager).buildSessionContext().messages);
 			if (!/\bcontext_tool\b/i.test(requestText)) {
 				throw new Error("context_tool requires the user to request context_tool by its exact name in their latest message");
 			}

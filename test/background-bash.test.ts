@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BackgroundBashManager, registerBackgroundBash } from "../pi-toolkit-lib/background-bash.ts";
+import { BackgroundTaskViewer } from "../pi-toolkit-lib/background-task-viewer.ts";
 import { builtinRenderers } from "../pi-toolkit-lib/lib/footer-engine/segments.ts";
 
 function harness(autoBackgroundMs = 60_000) {
@@ -76,6 +77,27 @@ describe("background bash", () => {
 		expect(builtinRenderers.backgroundShells!({ backgroundShells: 0, theme } as any)).toBe("");
 	});
 
+	it("uses the command as the task name and previews its last five output lines", () => {
+		const viewer = new BackgroundTaskViewer(
+			{ requestRender: () => {} } as any,
+			{
+				list: () => [{ id: "bash-1", command: "npm   run dev", status: "running", startedAt: Date.now() }],
+				output: () => "one\ntwo\nthree\nfour\nfive\n\u001b[31msix\u001b[0m",
+				delete: async () => {},
+			},
+			{ fg: (_color: string, text: string) => text, bold: (text: string) => text },
+			() => {},
+		);
+
+		const lines = viewer.render(80);
+		expect(lines.join("\n")).toContain("npm run dev  running");
+		expect(lines.join("\n")).toContain("Recent output  bash-1 · last 5 lines");
+		expect(lines.join("\n")).not.toContain("│ one");
+		for (const line of ["two", "three", "four", "five", "six"]) expect(lines.join("\n")).toContain(`│ ${line}`);
+		expect(lines.join("\n")).not.toContain("\u001b[31m");
+		viewer.dispose();
+	});
+
 	it("preserves normal foreground execution", async () => {
 		const { ctx, shutdown, tools } = harness();
 		try {
@@ -150,7 +172,9 @@ describe("background bash", () => {
 			const lines = viewer.render(80);
 			expect(lines.join("\n")).toContain("Background tasks");
 			expect(lines.join("\n")).toContain("bash-1");
-			expect(lines).toHaveLength(7);
+			expect(lines.join("\n")).toContain("sleep 30  running");
+			expect(lines.join("\n")).toContain("Recent output");
+			expect(lines).toHaveLength(10);
 			viewer.handleInput("x");
 			viewer.handleInput("x");
 			await waitFor(async () => (await tools.get("bash_jobs").execute("call-list", {})).details.jobs.length.toString(), /^0$/);

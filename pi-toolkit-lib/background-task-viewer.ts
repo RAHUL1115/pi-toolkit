@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { matchesKey, truncateToWidth, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 
 export type BackgroundTaskItem = {
@@ -12,6 +13,7 @@ export type BackgroundTaskItem = {
 
 export type BackgroundTaskController = {
 	list(): BackgroundTaskItem[];
+	output(id: string): string;
 	delete(id: string): Promise<void>;
 };
 
@@ -30,6 +32,15 @@ function status(task: BackgroundTaskItem, theme: Theme): string {
 	if (task.status === "exited" && task.exitCode === 0) return theme.fg("success", "done");
 	if (task.status === "failed" || (task.status === "exited" && task.exitCode !== 0)) return theme.fg("error", "failed");
 	return theme.fg("warning", task.status === "timed_out" ? "timed out" : "stopped");
+}
+
+function taskName(command: string): string {
+	return stripVTControlCharacters(command).replace(/[\u202a-\u202e\u2066-\u2069]/g, "").replace(/\s+/g, " ").trim() || "Untitled command";
+}
+
+function outputPreview(output: string): string[] {
+	if (!output) return [];
+	return stripVTControlCharacters(output).split(/\r\n|\n|\r/).slice(-5);
 }
 
 export class BackgroundTaskViewer {
@@ -100,11 +111,18 @@ export class BackgroundTaskViewer {
 				}
 				const selected = start + i === this.selected;
 				const cursor = selected ? this.theme.fg("accent", "›") : " ";
-				const command = task.command.replace(/\s+/g, " ").trim();
-				lines.push(row(`${cursor} ${this.theme.bold(task.id)}  ${status(task, this.theme)} · ${elapsed(task)}  ${this.theme.fg(selected ? "text" : "muted", command)}`));
+				lines.push(row(`${cursor} ${this.theme.bold(taskName(task.command))}  ${status(task, this.theme)} · ${elapsed(task)}  ${this.theme.fg("dim", task.id)}`));
 			}
 		}
 		lines.push(separator);
+		const selectedTask = tasks[this.selected];
+		if (selectedTask) {
+			lines.push(row(`${this.theme.bold("Recent output")}  ${this.theme.fg("dim", `${selectedTask.id} · last 5 lines`)}`));
+			const preview = outputPreview(this.tasks.output(selectedTask.id));
+			if (preview.length === 0) lines.push(row(this.theme.fg("muted", "(no output yet)")));
+			else for (const line of preview) lines.push(row(this.theme.fg("muted", line)));
+			lines.push(separator);
+		}
 		lines.push(row(this.deleteArmed ? this.theme.fg("warning", "Press x again to delete this task") : this.theme.fg("dim", "↑↓ navigate · x delete · Esc close")));
 		lines.push(bottom);
 		return lines;

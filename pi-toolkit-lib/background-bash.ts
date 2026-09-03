@@ -377,6 +377,10 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 					endedAt: job.endedAt,
 					exitCode: job.exitCode,
 				})),
+				output: (id) => {
+					const job = manager.get(id);
+					return job ? manager.output(job) : "";
+				},
 				delete: (id) => manager.delete(id),
 			}, theme, done));
 		},

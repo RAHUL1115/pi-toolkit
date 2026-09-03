@@ -144,7 +144,7 @@ The toolkit extends Pi's existing `bash` tool with an optional `run_in_backgroun
 }
 ```
 
-Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. While any are running, the footer shows `bg tasks:N`. Open `/tasks` to see session tasks; select one and press `x` twice to stop and delete it. The agent can also use:
+Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. While any are running, the footer shows `bg tasks:N`. Open `/tasks` to see session tasks named by their normalized command, with the selected task's last five output lines shown in a live preview; press `x` twice to stop and delete it. The agent can also use:
 
 | Tool | Purpose |
 |---|---|

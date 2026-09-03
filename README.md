@@ -42,7 +42,7 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 | `/ptk` | Configure workflow feature toggles |
 | `/ptk-footer-settings` | Configure the footer, segments, presets, path display, and context thresholds |
 | `/ptk-obs` | Open the observability dashboard |
-| `/tasks` | Show and delete background tasks |
+| `/tasks` | View, stop, and clear background tasks |
 | `/agents` | Manage agents, schedules, running jobs, and unified-subagent settings |
 
 The old `/ptk-settings` and `/ptk-workflow-settings` names are intentionally removed.
@@ -135,16 +135,19 @@ The renderer follows Pi's global `outputPad` setting.
 
 ## Background tasks
 
-The toolkit extends Pi's existing `bash` tool with an optional `run_in_background` boolean while preserving Pi's built-in output handling and rendering.
+The toolkit extends Pi's existing `bash` tool with optional `run_in_background` and `title` fields while preserving Pi's built-in output handling and rendering. Titles are limited to 80 characters.
 
 ```json
 {
   "command": "npm run dev",
+  "title": "Dev server",
   "run_in_background": true
 }
 ```
 
-Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. While any are running, the footer shows `bg tasks:N`. Open `/tasks` to see session tasks named by their normalized command, with the selected task's last five output lines shown in a live preview; press `x` twice to stop and delete it. The agent can also use:
+Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the footer shows `bg tasks:N`.
+
+Open `/tasks` for the live task list and selected task's five-line output window. Use `K`/`J` or Page Up/Page Down to scroll output, `g` for the top, and `G` to resume following the tail. Selection follows the task ID when the list changes. Destructive actions require the same key twice: `x x` stops a running task but retains its record and output, `c c` or Delete twice clears a selected finished task, and `C C` clears all finished tasks. Duplicate asynchronous actions are ignored while one is pending. The agent can also use:
 
 | Tool | Purpose |
 |---|---|
@@ -152,7 +155,11 @@ Commands run in the foreground by default. If one is still running after 60 seco
 | `bash_jobs` | List tasks started in the current Pi session |
 | `bash_stop` | Stop a task and its child process tree |
 
-The existing `timeout` argument remains available and automatically terminates a background task when reached. When a background task exits, fails, is stopped, or times out, the toolkit sends only its final status and temporary log path to the main agent as a follow-up notification and triggers the next turn. Output enters context only when the agent explicitly calls `bash_output`, which remains bounded to 2,000 lines or 50KB. Active tasks are stopped during reload, session replacement, and orderly Pi shutdown. Task state is intentionally in-memory and does not survive a restart.
+The existing `timeout` argument remains available and terminates the process tree when reached. Stop, timeout, and shutdown use the same idempotent flow: POSIX sends graceful tree termination before a forced fallback; Windows force-terminates the tree because it has no reliable equivalent for arbitrary console processes. Both paths confirm process exit and log-stream flush. A stop is not reported as successful when exit cannot be confirmed.
+
+Per-job logs are capped at 2 MiB by default. Once full, the file records a limit marker, the process continues, dropped bytes are counted, and `bash_output` keeps returning the recent bounded tail. At most 50 finished tasks are retained by default; eviction, clearing, and shutdown remove their temporary directories. Foreground jobs that never detach remove their temporary directory after settlement. `/tasks` refreshes from manager list/output events, throttles output paints to roughly 100 ms, and runs its one-second elapsed clock only while work is active. Task labels and preview output strip terminal control and bidirectional-control characters.
+
+When a background task exits, fails, is stopped, or times out, the toolkit sends only its final status and temporary log path to the main agent as a follow-up notification and triggers the next turn. Output enters context only when the agent explicitly calls `bash_output`, which remains bounded to 2,000 lines or 50KB. Active tasks are stopped and all task temp directories are removed during reload, session replacement, and orderly Pi shutdown. Task state is intentionally in-memory and does not survive a restart.
 
 FleetView's terminal-input handler runs before editor shortcuts. Therefore `Ctrl+B` detaches a blocking foreground agent when one exists and consumes the key; when it does not, FleetView deliberately passes the key through to the background-task shortcut.
 
@@ -406,7 +413,7 @@ Legacy footer settings under `~/.pi/agent/observability/settings.json` are migra
 - Transcript markers are skipped on Pi versions without Markdown-transformer support.
 - The custom footer replaces information shown only by Pi's stock footer or other footer implementations.
 - Session history may miss the final run if Pi is force-killed without shutdown.
-- Background tasks are session-scoped; a force-killed Pi process may leave an external process behind.
+- Background tasks are session-scoped; a force-killed Pi process can bypass orderly process and temporary-log cleanup.
 
 ## Development
 
@@ -416,7 +423,7 @@ Run the regression test:
 npm test
 ```
 
-The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, background-task execution and management, 60-second automatic detachment, `Ctrl+B` detachment, completion notifications and cancellation, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component.
+The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, bounded background-task execution and retention, confirmed stop/clear behavior, scroll/follow refresh, titles, automatic and `Ctrl+B` detachment, completion notifications, cleanup, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component.
 
 ## Provenance
 

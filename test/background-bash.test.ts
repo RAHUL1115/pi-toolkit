@@ -186,31 +186,31 @@ describe("background bash", () => {
 		const viewer = new BackgroundTaskViewer({ requestRender: () => {} } as any, controller, testTheme(), () => {});
 
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 4-8/8 · following tail");
-		viewer.handleInput("K");
+		viewer.handleInput("k");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 3-7/8 · paused");
 		controller.outputs.set("bash-1", "1\n2\n3\n4\n5\n6\n7\n8\n9");
 		controller.emitOutput("bash-1");
 		controller.emitOutput("bash-1");
 		await new Promise((resolve) => setTimeout(resolve, 125));
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 3-7/9 · paused");
-		viewer.handleInput("G");
+		viewer.handleInput("\u001b[1;3B");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
-		viewer.handleInput("g");
+		viewer.handleInput("\u001b[1;3A");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
-		viewer.handleInput("\u001b[6~");
+		viewer.handleInput("\u001b[1;2B");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
-		viewer.handleInput("\u001b[5~");
+		viewer.handleInput("\u001b[1;2A");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
-		viewer.handleInput("G");
-		viewer.handleInput("K");
+		viewer.handleInput("\u001b[1;3B");
+		viewer.handleInput("k");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 4-8/9 · paused");
-		viewer.handleInput("J");
+		viewer.handleInput("j");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
 
 		controller.items.reverse();
 		controller.emitList();
 		expect(viewer.render(90).join("\n")).toContain("Output preview  bash-1");
-		viewer.handleInput("k");
+		viewer.handleInput("\u001b[A");
 		expect(viewer.render(90).join("\n")).toContain("bash-2 · 2-6/6 · following tail");
 		viewer.dispose();
 	});
@@ -226,7 +226,7 @@ describe("background bash", () => {
 		const viewer = new BackgroundTaskViewer({ requestRender: () => {} } as any, controller, testTheme(), () => {});
 
 		controller.emitOutput("bash-1");
-		viewer.handleInput("j");
+		viewer.handleInput("\u001b[B");
 		controller.outputs.set("bash-2", "second final");
 		controller.emitOutput("bash-2");
 		await new Promise((resolve) => setTimeout(resolve, 125));

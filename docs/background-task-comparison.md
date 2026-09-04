@@ -4,7 +4,7 @@ Research snapshot: Claude Code 2.1.259 and the public repositories/commits linke
 
 ## Executive summary
 
-`pi-toolkit` now covers the strongest session-owned baseline: explicit and automatic backgrounding, `Ctrl+B`, optional human titles, bounded file-backed output, confirmed process-tree termination, separate stop/clear actions, retained-job cleanup, event-driven refresh, and a scrollable/following `/tasks` preview. The main remaining correctness gap is one-shot completion delivery. The remaining UI gaps are selected-task metadata, terminal-height sizing, incremental model reads, and higher-volume filtering/search.
+`pi-toolkit` now covers the strongest session-owned baseline: explicit and automatic backgrounding, `Ctrl+B`, optional human titles, bounded file-backed output, confirmed process-tree termination, separate stop/clear actions, retained-job cleanup, event-driven refresh, a scrollable/following `/tasks` preview, and a shared below-editor Tasks/Agents activity navigator. The main remaining correctness gap is one-shot completion delivery. The remaining UI gaps are selected-task metadata, terminal-height sizing, incremental model reads, and higher-volume filtering/search.
 
 ## Verified facts
 
@@ -13,7 +13,8 @@ Research snapshot: Claude Code 2.1.259 and the public repositories/commits linke
 Sources: [`background-bash.ts`](../pi-toolkit-lib/background-bash.ts) and [`background-task-viewer.ts`](../pi-toolkit-lib/background-task-viewer.ts), corroborated by [`background-bash.test.ts`](../test/background-bash.test.ts).
 
 - Tasks accept an optional sanitized 80-character `title`; the normalized command is the fallback. IDs remain process-local `bash-N` values.
-- `/tasks` selects by stable task ID. Its five-line output window supports `K`/`J`, Page Up/Page Down, `g`/`G`, paused scrolling, and tail follow.
+- The below-editor activity surface shows filled tabs only for running Tasks and running/queued top-level Agents. It stays collapsed to muted counters until Down focuses the tabs and a second Down expands the selected rows, even with one category. Left/Right switches categories from tabs or rows; Enter opens `/tasks` focused on that task or the selected agent conversation.
+- `/tasks` selects by stable task ID with Up/Down. Its five-line output window uses `J`/`K` for lines, Shift+Up/Down for pages, and Alt+Up/Down for top/tail; Page Up/Page Down and `g`/`G` remain aliases.
 - `x x` stops and retains a running task. `c c` or Delete twice clears one finished task; `C C` clears all finished tasks. Duplicate asynchronous actions are suppressed.
 - Output is combined stdout/stderr in a per-job temporary `output.log`, capped at 2 MiB by default with a visible limit marker. Dropped bytes are counted while the process continues, and a separate bounded memory tail keeps model-facing reads current within Pi's 50 KB/2,000-line limits.
 - At most 50 finished jobs are retained by default. Clear, eviction, foreground settlement, and shutdown remove the corresponding temporary directories.

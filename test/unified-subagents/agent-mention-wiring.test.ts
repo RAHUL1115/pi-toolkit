@@ -469,11 +469,12 @@ describe("mentioning an agent that has never run", () => {
       const { lifecycle } = bootDirect({ defaultMaxTurns: 9, fleetView: true });
       heldRun(fakeSession());
       let factory: any;
+      let handleInput: (data: string) => void;
       const uiCtx = ctx({
         hasUI: true,
         ui: {
           setStatus: vi.fn(), notify: vi.fn(), addAutocompleteProvider: vi.fn(),
-          onTerminalInput: vi.fn(() => vi.fn()), getEditorText: vi.fn(() => ""), custom: vi.fn(),
+          onTerminalInput: vi.fn((handler) => { handleInput = handler; return vi.fn(); }), getEditorText: vi.fn(() => ""), custom: vi.fn(),
           setWidget: vi.fn((key: string, content: any) => { if (key === "fleet" && content) factory = content; }),
         },
       });
@@ -483,7 +484,9 @@ describe("mentioning an agent that has never run", () => {
       await lifecycle.get("input")({ type: "input", text: "@explore go", source: "interactive" }, uiCtx);
       await flush();
 
-      const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
+      handleInput!("\u001b[B");
+      handleInput!("\u001b[B");
+      const theme = { fg: (_c: string, t: string) => t, bg: (_c: string, t: string) => t, bold: (t: string) => t };
       const lines = factory({ terminal: { columns: 200 }, requestRender: vi.fn() }, theme).render(200).join("\n");
       expect(lines).toContain("≤9");
     } finally {

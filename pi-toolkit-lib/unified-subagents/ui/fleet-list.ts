@@ -1,18 +1,20 @@
 /**
- * fleet-list.ts — Claude Code-style "FleetView" list rendered below the editor.
+ * fleet-list.ts — shared activity list rendered below the editor.
  *
- * Shows `main` + each running/queued subagent as a navigable list. Pressing ↓ (or
- * ←) at an empty prompt activates the list; ↑/↓ move the selection (filled ● marker),
- * Enter opens the selected agent's live conversation overlay, Esc returns to the prompt.
- * A viewer stays open when its agent finishes; finished agents linger briefly in the list.
- *
- * Mechanics (see plan): the list is a `belowEditor` widget (render-only), and ALL key
- * handling goes through `onTerminalInput` — which fires before the focused editor and
- * can `consume` keys — gated on `getEditorText() === ""` so normal typing is untouched.
- * Ctrl+B backgrounds a blocking foreground agent and otherwise passes through.
+ * Running background tasks and top-level subagents share one surface. Down first
+ * focuses the tab strip, Left/Right switches tabs, and another Down expands and
+ * enters the selected rows. The inactive surface stays collapsed to counters. Enter opens
+ * the existing task detail or agent conversation view. Ctrl+B keeps its agent-first
+ * backgrounding behavior even when the visual surface is disabled.
  */
 
 import { Editor, isKeyRelease, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  BackgroundTaskViewer,
+  type BackgroundTaskController,
+  type BackgroundTaskItem,
+  sanitizeTaskLabel,
+} from "../../background-task-viewer.js";
 import { hasAgentBadge, renderAgentName } from "../agent-color.js";
 import type { AgentManager } from "../agent-manager.js";
 import type { AgentRecord } from "../types.js";
@@ -28,20 +30,19 @@ import {
 } from "./agent-widget.js";
 import { CONVERSATION_OVERLAY_OPTIONS, ConversationViewer } from "./conversation-viewer.js";
 
-/** Widget key for the below-editor fleet list. */
 const FLEET_KEY = "fleet";
-/** Max agent rows shown at once; extras collapse into a "↓ N more" indicator. */
-const MAX_AGENT_ROWS = 5;
-/** Elapsed time is displayed in whole seconds; faster idle paints only waste TUI work. */
+const MAX_ROWS = 5;
 const TICK_MS = 1000;
-/** How long a finished agent lingers in the list before it drops out. */
-const FINISHED_LINGER_MS = 4000;
 
-/** Minimal UI surface the FleetView needs from `ctx.ui` (structural subset). */
+type ActivityTab = "tasks" | "agents";
+type FocusLevel = "tabs" | "rows";
+type ActivityTheme = Theme & { bg(color: string, text: string): string };
+
+/** Minimal UI surface the activity list needs from `ctx.ui` (structural subset). */
 export type FleetUICtx = {
   setWidget(
     key: string,
-    content: undefined | ((tui: any, theme: Theme) => { render(width: number): string[]; invalidate(): void; dispose?(): void }),
+    content: undefined | ((tui: any, theme: ActivityTheme) => { render(width: number): string[]; invalidate(): void; dispose?(): void }),
     options?: { placement?: "aboveEditor" | "belowEditor" },
   ): void;
   onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void;
@@ -52,10 +53,6 @@ export type FleetUICtx = {
     options?: { overlay?: boolean; overlayOptions?: unknown; onHandle?: (handle: unknown) => void },
   ): Promise<T>;
 };
-
-type MainEntry = { kind: "main" };
-type AgentEntry = { kind: "agent"; record: AgentRecord };
-type FleetEntry = MainEntry | AgentEntry;
 
 /** `11s` — integer seconds, no decimal/suffix (matches Claude Code, unlike formatMs). */
 export function formatFleetElapsed(ms: number): string {
@@ -71,11 +68,6 @@ export function formatFleetTokens(count: number): string {
   return `↓ ${compact} tokens`;
 }
 
-/**
- * Place `right` flush to `width`, truncating `left` first so the stats survive.
- * The final clamp guarantees the line never exceeds `width` (which would wrap and
- * desync pi's line-diff → flicker) even on a terminal too narrow for the stats.
- */
 function rightAlign(left: string, right: string, width: number): string {
   const rightW = visibleWidth(right);
   const maxLeft = Math.max(0, width - rightW - 1);
@@ -84,43 +76,42 @@ function rightAlign(left: string, right: string, width: number): string {
   return truncateToWidth(leftClamped + " ".repeat(gap) + right, width);
 }
 
+function taskName(task: BackgroundTaskItem): string {
+  return sanitizeTaskLabel(task.title ?? "") || sanitizeTaskLabel(task.command) || "Untitled command";
+}
+
 export class FleetList {
   private ui: FleetUICtx | undefined;
   private tui: any | undefined;
   private inputUnsub: (() => void) | undefined;
+  private taskUnsub: (() => void) | undefined;
   private widgetRegistered = false;
   private timer: ReturnType<typeof setInterval> | undefined;
 
   private enabled = true;
-  /** Whether arrow keys currently navigate the list (vs. flow to the editor). */
-  private active = false;
-  /** 0 = `main`, 1..N = subagents. */
-  private selectedIndex = 0;
-  /** Set while a conversation overlay is open; calling it closes the overlay. */
+  private focus: FocusLevel | undefined;
+  private selectedTab: ActivityTab = "agents";
+  private selectedIndex: Record<ActivityTab, number> = { tasks: 0, agents: 0 };
   private viewerClose: (() => void) | undefined;
-  private viewingAgentId: string | undefined;
 
   constructor(
     private manager: AgentManager,
     private agentActivity: Map<string, AgentActivity>,
-    /**
-     * Read live at render time. Whether each row shows an estimated cost after
-     * its token count. Defaults to off — the extension supplies the user's
-     * `showCost` setting.
-     */
     private showCost: () => boolean = () => false,
-  ) {}
+    private tasks?: BackgroundTaskController,
+  ) {
+    this.taskUnsub = tasks?.onList?.(() => this.update());
+  }
 
   // ---- Lifecycle ----
 
   setEnabled(enabled: boolean): void {
     if (enabled === this.enabled) return;
     this.enabled = enabled;
-    if (!enabled) this.active = false;
+    if (!enabled) this.focus = undefined;
     this.update();
   }
 
-  /** Capture the UI context and (re)register the global input handler. */
   setUICtx(ui: FleetUICtx): void {
     if (ui === this.ui) return;
     this.inputUnsub?.();
@@ -130,15 +121,10 @@ export class FleetList {
     this.inputUnsub = ui.onTerminalInput(data => this.handleKey(data));
   }
 
-  /** Ensure the re-render timer is running (called when an agent spawns). */
   ensureTimer(): void {
     if (!this.timer) this.timer = setInterval(() => this.update(), TICK_MS);
   }
 
-  /**
-   * Called when an agent finishes. The viewer (if open on it) stays open so the
-   * final output remains readable, and the row lingers in the list — just refresh.
-   */
   onAgentFinished(_id: string): void {
     this.update();
   }
@@ -147,35 +133,34 @@ export class FleetList {
     if (this.timer) { clearInterval(this.timer); this.timer = undefined; }
     this.inputUnsub?.();
     this.inputUnsub = undefined;
+    this.taskUnsub?.();
+    this.taskUnsub = undefined;
     if (this.viewerClose) { this.viewerClose(); this.viewerClose = undefined; }
-    this.viewingAgentId = undefined;
     if (this.ui && this.widgetRegistered) this.ui.setWidget(FLEET_KEY, undefined);
     this.widgetRegistered = false;
     this.tui = undefined;
-    this.active = false;
-    // Null last so a `viewerClose()` microtask above can't re-register the widget.
+    this.focus = undefined;
     this.ui = undefined;
   }
 
-  /** Re-register/refresh the below-editor widget; clears it when no agents remain. */
   update(): void {
     if (!this.ui) return;
-    const hasAgents = this.enabled && this.agentRecords().length > 0;
+    const tabs = this.availableTabs();
+    const visible = this.enabled && tabs.length > 0;
 
-    if (!hasAgents) {
+    if (!visible) {
       if (this.widgetRegistered) {
         this.ui.setWidget(FLEET_KEY, undefined);
         this.widgetRegistered = false;
         this.tui = undefined;
       }
       if (this.timer) { clearInterval(this.timer); this.timer = undefined; }
-      this.active = false;
-      this.selectedIndex = 0;
+      this.focus = undefined;
       return;
     }
 
-    this.clampSelection();
-    this.ensureTimer(); // keep stats ticking whenever the list is shown (e.g. after a re-enable)
+    this.normalizeSelection(tabs);
+    this.ensureTimer();
 
     if (!this.widgetRegistered) {
       this.ui.setWidget(FLEET_KEY, (tui, theme) => {
@@ -191,54 +176,45 @@ export class FleetList {
     }
   }
 
-  // ---- Roster ----
+  // ---- Activity data ----
 
-  /**
-   * Agents shown in the list, ordered earliest-launched first so the ones you
-   * started sooner sit at the top. Included: running/queued (including startup
-   * before a session exists), the agent currently being viewed, and recently
-   * finished agents that are still within the linger period. Enter reports that
-   * a startup session is not available yet rather than hiding all progress.
-   * (`listAgents()` is newest-first, so we re-sort.)
-   */
   private agentRecords(): AgentRecord[] {
-    const now = Date.now();
     return this.manager.listAgents()
-      .filter(a => !a.parentAgentId && (
-        a.status === "running" || a.status === "queued"
-        || a.id === this.viewingAgentId
-        || (a.completedAt != null && now - a.completedAt < FINISHED_LINGER_MS)
-      ))
+      .filter(a => !a.parentAgentId && (a.status === "running" || a.status === "queued"))
       .sort((a, b) => a.startedAt - b.startedAt);
   }
 
-  private roster(): FleetEntry[] {
-    return [{ kind: "main" }, ...this.agentRecords().map(record => ({ kind: "agent" as const, record }))];
+  private taskRecords(): BackgroundTaskItem[] {
+    return this.tasks?.list().filter(task => task.status === "running") ?? [];
   }
 
-  private clampSelection(): void {
-    const max = this.roster().length - 1;
-    if (this.selectedIndex > max) this.selectedIndex = Math.max(0, max);
-    if (this.selectedIndex < 0) this.selectedIndex = 0;
+  private availableTabs(): ActivityTab[] {
+    const tabs: ActivityTab[] = [];
+    if (this.taskRecords().length > 0) tabs.push("tasks");
+    if (this.agentRecords().length > 0) tabs.push("agents");
+    return tabs;
+  }
+
+  private rows(tab = this.selectedTab): Array<BackgroundTaskItem | AgentRecord> {
+    return tab === "tasks" ? this.taskRecords() : this.agentRecords();
+  }
+
+  private normalizeSelection(tabs = this.availableTabs()): void {
+    if (tabs.length === 0) { this.focus = undefined; return; }
+    if (!tabs.includes(this.selectedTab)) {
+      this.selectedTab = tabs[0];
+      this.selectedIndex[this.selectedTab] = 0;
+    }
+    const rows = this.rows();
+    this.selectedIndex[this.selectedTab] = Math.max(0, Math.min(this.selectedIndex[this.selectedTab], rows.length - 1));
   }
 
   // ---- Key handling ----
 
-  /** Returns `{consume:true}` to swallow a key, or undefined to let it through. */
   handleKey(data: string): { consume?: boolean; data?: string } | undefined {
-    if (!this.ui) return undefined;
-    // Input listeners receive BOTH key-press and key-release (the kitty protocol
-    // emits both, and matchesKey matches either) — act on press only, or every
-    // tap would move/fire twice. Repeats still pass through for held-key nav.
-    if (isKeyRelease(data)) return undefined;
-    // While an overlay is open, let it own all input.
-    if (this.viewerClose) return undefined;
-    // Input listeners fire BEFORE the focused component, and dialogs
-    // (ctx.ui.select/confirm/input, pi's own menus) swap the prompt editor out
-    // while getEditorText() still reads the detached — empty — editor. So when
-    // anything but the editor owns the keyboard, stay out of its keys (#123).
+    if (!this.ui || isKeyRelease(data) || this.viewerClose) return undefined;
     if (!this.editorHasFocus()) {
-      if (this.active) this.deactivate();
+      if (this.focus) this.deactivate();
       return undefined;
     }
 
@@ -252,66 +228,98 @@ export class FleetList {
 
     if (!this.enabled) return undefined;
 
-    if (!this.active) {
-      // Activate: ↓ or ← at an empty prompt moves focus into the list.
-      const isActivator = matchesKey(data, "down") || matchesKey(data, "left");
-      if (isActivator && this.agentRecords().length > 0 && this.ui.getEditorText() === "") {
-        this.active = true;
-        this.selectedIndex = 0;
+    if (!this.focus) {
+      if (matchesKey(data, "down") && this.availableTabs().length > 0 && this.ui.getEditorText() === "") {
+        this.focus = "tabs";
+        this.normalizeSelection();
         this.update();
         return { consume: true };
       }
       return undefined;
     }
 
-    // Active — arrows navigate, Enter opens, Esc / Up-past-top exits.
-    if (matchesKey(data, "down")) {
-      const max = this.roster().length - 1;
-      this.selectedIndex = Math.min(max, this.selectedIndex + 1);
-      this.update();
-      return { consume: true };
-    }
-    if (matchesKey(data, "up")) {
-      if (this.selectedIndex === 0) { this.deactivate(); return { consume: true }; }
-      this.selectedIndex -= 1;
-      this.update();
-      return { consume: true };
-    }
-    if (matchesKey(data, "escape")) { this.deactivate(); return { consume: true }; }
-    if (matchesKey(data, Key.enter)) { this.openSelected(); return { consume: true }; }
+    const tabs = this.availableTabs();
+    this.normalizeSelection(tabs);
+    if (!this.focus) return undefined;
 
-    // Any other key cancels navigation and flows to the editor.
+    if (matchesKey(data, "escape")) {
+      this.deactivate();
+      return { consume: true };
+    }
+
+    if (matchesKey(data, "left") || matchesKey(data, "right")) {
+      if (tabs.length > 1) {
+        const current = tabs.indexOf(this.selectedTab);
+        const direction = matchesKey(data, "left") ? -1 : 1;
+        this.selectedTab = tabs[Math.max(0, Math.min(tabs.length - 1, current + direction))];
+        this.update();
+      }
+      return { consume: true };
+    }
+
+    if (this.focus === "tabs") {
+      if (matchesKey(data, "down")) {
+        this.focus = "rows";
+        this.update();
+        return { consume: true };
+      }
+      if (matchesKey(data, "up")) {
+        this.deactivate();
+        return { consume: true };
+      }
+    } else {
+      const index = this.selectedIndex[this.selectedTab];
+      if (matchesKey(data, "down")) {
+        this.selectedIndex[this.selectedTab] = Math.min(this.rows().length - 1, index + 1);
+        this.update();
+        return { consume: true };
+      }
+      if (matchesKey(data, "up")) {
+        if (index === 0) {
+          this.focus = "tabs";
+          this.update();
+        } else {
+          this.selectedIndex[this.selectedTab] = index - 1;
+          this.update();
+        }
+        return { consume: true };
+      }
+      if (matchesKey(data, Key.enter)) {
+        this.openSelected();
+        return { consume: true };
+      }
+    }
+
     this.deactivate();
     return undefined;
   }
 
-  /**
-   * True when pi's prompt editor owns the keyboard. pi's editor is an `Editor`
-   * subclass (CustomEditor) while every dialog/selector is not, and the loader
-   * aliases pi-tui to pi's own copy, so `instanceof` is a reliable identity
-   * check. `focusedComponent` is TUI-private (no public accessor), hence the
-   * best-effort peek: unknowable focus (no tui seen yet, nothing focused)
-   * counts as the editor so activation keeps working.
-   */
   private editorHasFocus(): boolean {
     const focused = (this.tui as { focusedComponent?: unknown } | undefined)?.focusedComponent;
     return focused == null || focused instanceof Editor;
   }
 
   private deactivate(): void {
-    this.active = false;
-    this.selectedIndex = 0;
+    this.focus = undefined;
     this.update();
   }
 
   private openSelected(): void {
-    const entry = this.roster()[this.selectedIndex];
-    if (!entry || entry.kind === "main") {
-      // `main` = return to the prompt; the native transcript is already shown.
-      this.deactivate();
-      return;
-    }
-    const record = entry.record;
+    const selected = this.rows()[this.selectedIndex[this.selectedTab]];
+    if (!selected || !this.ui) return;
+    if (this.selectedTab === "tasks") this.openTask(selected as BackgroundTaskItem);
+    else this.openAgent(selected as AgentRecord);
+  }
+
+  private openTask(task: BackgroundTaskItem): void {
+    if (!this.ui || !this.tasks) return;
+    void this.ui.custom<undefined>((tui, theme, _keybindings, done) => {
+      this.viewerClose = () => done(undefined);
+      return new BackgroundTaskViewer(tui, this.tasks!, theme, done, task.id);
+    }).then(() => this.clearViewer(), () => this.clearViewer());
+  }
+
+  private openAgent(record: AgentRecord): void {
     if (!this.ui) return;
     if (!record.session) {
       this.ui.notify(`Agent is ${record.status} — no session available.`, "info");
@@ -319,7 +327,6 @@ export class FleetList {
     }
     const session = record.session;
     const activity = this.agentActivity.get(record.id);
-    this.viewingAgentId = record.id;
 
     void this.ui.custom<undefined>(
       (tui, theme, keybindings, done) => {
@@ -339,61 +346,86 @@ export class FleetList {
           this.showCost(),
         );
       },
-      {
-        overlay: true,
-        overlayOptions: CONVERSATION_OVERLAY_OPTIONS,
-      },
+      { overlay: true, overlayOptions: CONVERSATION_OVERLAY_OPTIONS },
     ).then(() => this.clearViewer(), () => this.clearViewer());
   }
 
-  /** Reset overlay state and return keyboard focus to the main editor. */
   private clearViewer(): void {
     this.viewerClose = undefined;
-    this.viewingAgentId = undefined;
     this.deactivate();
   }
 
   // ---- Rendering ----
 
-  private renderBar(width: number, theme: Theme): string[] {
-    const agents = this.roster().slice(1) as AgentEntry[];
-    if (agents.length === 0) return [];
-    // Clamp locally so a render between a roster shrink and the next update()
-    // (e.g. on terminal resize) never loses the selection marker.
-    const sel = Math.min(this.selectedIndex, agents.length);
+  private renderBar(width: number, theme: ActivityTheme): string[] {
+    const tabs = this.availableTabs();
+    if (tabs.length === 0) return [];
+    this.normalizeSelection(tabs);
 
-    const hint = this.active
-      ? "↑↓ select · enter view · esc back"
-      : "esc to interrupt · ← for agents · ↓ to manage";
-    const lines: string[] = [];
-    lines.push(truncateToWidth("  " + theme.fg("dim", hint), width));
-    lines.push("");
-    lines.push(truncateToWidth(`  ${this.bullet(0, sel, theme)} main`, width));
-
-    // Window the agent rows so the selected one stays visible.
-    const visible = Math.min(MAX_AGENT_ROWS, agents.length);
-    const selAgent = Math.max(0, sel - 1);
-    const start = selAgent < visible ? 0 : selAgent - visible + 1;
-    const hiddenBelow = agents.length - (start + visible);
-
-    if (start > 0) lines.push(rightAlign("", theme.fg("dim", `↑ ${start} more`), width));
-    for (let a = start; a < start + visible; a++) {
-      lines.push(...this.renderAgentRows(a + 1, sel, agents[a].record, width, theme));
+    const hint = this.focus === "tabs"
+      ? "←→ switch · ↓ enter · ↑/esc back"
+      : this.focus === "rows"
+        ? "↑↓ select · enter view · esc back"
+        : "esc to interrupt · ↓ to manage";
+    const tabLabels = tabs.map(tab => {
+      const label = ` ${tab === "tasks" ? "Tasks" : "Agents"} ${this.rows(tab).length} `;
+      const selected = this.focus != null && tab === this.selectedTab;
+      const text = selected ? theme.bold(theme.fg(this.focus === "tabs" ? "accent" : "text", label)) : theme.fg("muted", label);
+      const background = this.focus == null || selected ? "selectedBg" : "customMessageBg";
+      return theme.bg(background, text);
+    });
+    const lines = [truncateToWidth(`  ${tabLabels.join(theme.fg("dim", "  |  "))}  ${theme.fg("dim", hint)}`, width)];
+    if (this.focus === "rows") {
+      if (this.selectedTab === "tasks") lines.push(...this.renderTasks(width, theme));
+      else lines.push(...this.renderAgents(width, theme));
     }
-    if (hiddenBelow > 0) lines.push(rightAlign("", theme.fg("dim", `↓ ${hiddenBelow} more`), width));
-
+    lines.push("");
     return lines;
   }
 
-  private bullet(rosterIndex: number, sel: number, theme: Theme): string {
-    return rosterIndex === sel ? theme.fg("accent", "●") : theme.fg("dim", "○");
+  private renderTasks(width: number, theme: ActivityTheme): string[] {
+    const tasks = this.taskRecords();
+    const selected = this.focus === "rows" ? this.selectedIndex.tasks : -1;
+    const { start, visible, hiddenBelow } = this.window(tasks.length, selected);
+    const lines: string[] = [];
+    if (start > 0) lines.push(rightAlign("", theme.fg("dim", `↑ ${start} more`), width));
+    for (let index = start; index < start + visible; index++) {
+      const task = tasks[index];
+      const isSelected = index === selected;
+      const marker = isSelected ? theme.fg("accent", "●") : theme.fg("dim", "○");
+      const title = isSelected ? theme.fg("text", taskName(task)) : theme.fg("muted", taskName(task));
+      const left = `  ${marker} ${title}`;
+      const elapsed = formatFleetElapsed(Date.now() - task.startedAt);
+      const stats = fgPreservingNestedStyles(theme, isSelected ? "text" : "dim", `${task.id} · ${elapsed}`);
+      lines.push(rightAlign(left, stats, width));
+    }
+    if (hiddenBelow > 0) lines.push(rightAlign("", theme.fg("dim", `↓ ${hiddenBelow} more`), width));
+    return lines;
   }
 
-  private renderAgentRows(rosterIndex: number, sel: number, record: AgentRecord, width: number, theme: Theme): string[] {
-    // Keep upstream's selected-row styling and color badge, with a native
-    // harness tag added beside the name.
-    const selected = rosterIndex === sel;
-    const name = renderAgentName(record.type, theme, selected
+  private renderAgents(width: number, theme: ActivityTheme): string[] {
+    const agents = this.agentRecords();
+    const selected = this.focus === "rows" ? this.selectedIndex.agents : -1;
+    const { start, visible, hiddenBelow } = this.window(agents.length, selected);
+    const lines: string[] = [];
+    if (start > 0) lines.push(rightAlign("", theme.fg("dim", `↑ ${start} more`), width));
+    for (let index = start; index < start + visible; index++) {
+      lines.push(this.renderAgentRow(index, selected, agents[index], width, theme));
+    }
+    if (hiddenBelow > 0) lines.push(rightAlign("", theme.fg("dim", `↓ ${hiddenBelow} more`), width));
+    return lines;
+  }
+
+  private window(total: number, selected: number): { start: number; visible: number; hiddenBelow: number } {
+    const visible = Math.min(MAX_ROWS, total);
+    const start = selected < visible ? 0 : selected - visible + 1;
+    return { start, visible, hiddenBelow: total - (start + visible) };
+  }
+
+  private renderAgentRow(index: number, selected: number, record: AgentRecord, width: number, theme: ActivityTheme): string {
+    const isSelected = index === selected;
+    const marker = isSelected ? theme.fg("accent", "●") : theme.fg("dim", "○");
+    const name = renderAgentName(record.type, theme, isSelected
       ? { fallbackColor: "text", bold: hasAgentBadge(record.type) }
       : { fallbackColor: "muted" });
     const harnessTag = record.harness === "pi" ? "" : ` ${theme.fg("dim", `(${record.harness})`)}`;
@@ -403,28 +435,24 @@ export class FleetList {
         ? describeActivity(activity.activeTools).replace(/…$/, "")
         : activity?.responseText.trim() ? "responding" : "thinking"
       : undefined;
-    const stepTag = step ? ` ${theme.fg(selected ? "text" : "dim", `[${step}]`)}` : "";
-    const description = selected ? theme.fg("text", record.description) : record.description;
-    const left = `  ${this.bullet(rosterIndex, sel, theme)} ${name}${harnessTag}${stepTag}  ${description}`;
+    const stepTag = step ? ` ${theme.fg(isSelected ? "text" : "dim", `[${step}]`)}` : "";
+    const description = isSelected ? theme.fg("text", record.description) : record.description;
+    const left = `  ${marker} ${name}${harnessTag}${stepTag}  ${description}`;
 
     const toolUses = activity?.toolUses ?? record.toolUses;
-    // The record survives compaction and includes nested-child spend.
     const tokens = getLifetimeTotal(record.lifetimeUsage);
     const contextPercent = getSessionContextPercent(activity?.session ?? record.session);
-    const tokenText = tokens > 0
-      ? `↓ ${formatSessionTokens(tokens, contextPercent, theme, record.compactionCount)}`
-      : "";
-    const elapsedMs = (record.completedAt ?? Date.now()) - record.startedAt; // freezes once finished
+    const tokenText = tokens > 0 ? `↓ ${formatSessionTokens(tokens, contextPercent, theme, record.compactionCount)}` : "";
+    const elapsedMs = Date.now() - record.startedAt;
     const cost = this.showCost() ? formatCost(getLifetimeCost(record.lifetimeUsage)) : "";
     const stats = [
-      record.status === "running" ? "" : record.status,
       toolUses > 0 ? `${toolUses} tool use${toolUses === 1 ? "" : "s"}` : "",
       activity?.turnCount && activity.maxTurns != null ? formatTurns(activity.turnCount, activity.maxTurns) : "",
       tokenText,
       cost,
       formatFleetElapsed(elapsedMs),
     ].filter(Boolean).join(" · ");
-    const right = fgPreservingNestedStyles(theme, selected ? "text" : "dim", stats);
-    return [rightAlign(left, right, width)];
+    const right = fgPreservingNestedStyles(theme, isSelected ? "text" : "dim", stats);
+    return rightAlign(left, right, width);
   }
 }

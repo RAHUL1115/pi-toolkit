@@ -19,8 +19,8 @@ https://github.com/user-attachments/assets/8685261b-9338-4fea-8dfe-1c590d5df543
 - **Claude Code look & feel** — same tool names, calling conventions, and UI patterns (`Agent`, `get_subagent_result`, `steer_subagent`) — feels native
 - **Unified pi + native harnesses** — pass `harness: "claude"` for the locally authenticated Claude Agent SDK or `harness: "codex"` for Codex through the `@agentclientprotocol/codex-acp` translation adapter; omitted stays on pi. All harnesses share foreground/background execution, concurrency, FleetView, the conversation viewer, steering, stopping, usage display, and result delivery
 - **Parallel background agents** — spawn multiple agents that run concurrently with automatic queuing (configurable concurrency limit, default 10) and smart group join (consolidated notifications)
-- **Single agent-progress UI** — FleetView is the only live progress surface while enabled, avoiding a duplicate above-editor widget. The legacy widget remains a fallback only when FleetView is disabled
-- **FleetView** — one navigable list of `main` + every running pi, Claude, and Codex child below the editor, with status, tool uses, token/context usage, elapsed time, and current activity; selected rows use the primary text color, configured color badges remain visible, and native rows are tagged
+- **Single activity UI** — FleetView is the only live progress surface while enabled, avoiding duplicate above-editor status
+- **FleetView** — tabbed running Tasks and Agents lists below the editor; agent rows include status, tool uses, token/context usage, elapsed time, and current activity, while task rows open the existing `/tasks` detail view
 - **Full-screen conversation viewer** — every harness opens in the same full-terminal, live-scrolling transcript viewer with thinking, bounded tool-argument previews, visible tool errors, steering, stopping, `Home`/`Ctrl+Home` and `End`/`Ctrl+End` transcript jumps, and Ctrl+C/Esc/q close behavior
 - **One configurable Light model** — a fast, low-cost model for straightforward low-intelligence work, with selectable thinking that defaults to `low`; task nature selects `Explore` or `general-purpose`
 - **Custom agent types** — define agents in `.pi/agents/<name>.md` or `.agents/agents/<name>.md` (project) or globally, with YAML frontmatter including model, tools, harness, and Claude Code-compatible colored name badges
@@ -104,7 +104,7 @@ Restrictions:
 
 ## UI
 
-FleetView is the single live agent-progress surface while enabled. The old `Agents` widget above the editor is suppressed so each run appears only once. If FleetView is turned off, `/agents → Settings → Widget` controls the fallback above-editor widget (`all`, `background`, or `off`). Model-visible `Agent` tool results and persisted sessions are unaffected.
+FleetView is the shared live activity surface while enabled. The old `Agents` widget above the editor is suppressed so each run appears only once. Turning FleetView off hides this surface. Model-visible task and `Agent` tool results and persisted sessions are unaffected.
 
 The token field is annotated with two optional signals inside parens:
 - **`NN%`** — context-window utilization (color-coded: <70% dim, 70–85% warning, ≥85% error). Omitted when the model has no declared `contextWindow`, or briefly right after compaction.
@@ -112,20 +112,19 @@ The token field is annotated with two optional signals inside parens:
 
 ### FleetView
 
-While subagents are running, a Claude Code-style navigable list renders **below** the editor:
+While background work is running, a navigable activity list renders **below** the editor. Tabs appear only for categories with running work:
 
 ```
-  esc to interrupt · ← for agents · ↓ to manage
+  Tasks 2  |  Agents 1    esc to interrupt · ↓ to manage
+  ○ general-purpose  Sleep then report 1             3 tool uses · ↓ 13.1k token (41%) · 11s
 
-  ● main
-  ○ general-purpose  Sleep then report 1          running · 3 tool uses · ↓ 13.1k token (41%) · 11s
-      ⎿  running command…
-  ○ Explore (claude)  Find auth files                 running · 2 tool uses · ↓ 9.4k token (18%) · 8s
-      ⎿  searching…
-                                                                                         ↓ 3 more
 ```
 
-The list is ordered earliest-launched first, tags native children with `(claude)` or `(codex)`, and only shows agents with an openable session. Each live row carries status, tool-use count, token/context usage, elapsed time, and current activity. At an **empty prompt**, use `↓`/`←` to focus it, `↑`/`↓` to move, and `Enter` to open the full-screen viewer. The selected row uses the theme's primary text color while a configured badge stays visible and bold. In the viewer, `Enter` opens steering, `x` twice stops, and `Ctrl+C`, `Esc`, or `q` closes. Finished agents linger briefly. Non-empty prompt input behaves normally. Disable FleetView via `/agents → Settings → Fleet view`; doing so restores the configured fallback Widget.
+The count-bearing tab labels use filled theme backgrounds. Tabs and hints share one line, rows begin immediately below, and one blank line separates the activity surface from the footer.
+
+While inactive, the surface collapses to muted `Tasks N | Agents N` counters with filled theme backgrounds. The first `↓` always focuses the tabs—even when only one category exists—and a second `↓` expands and enters the selected rows. Left/Right switches categories from either tabs or rows. `↑` from the first row collapses back to the tabs; another `↑` or `Esc` returns to the editor. `Enter` opens the selected agent's full-screen conversation viewer or `/tasks` focused on the selected task.
+
+Only running tasks and running/queued top-level agents appear. Agent rows are ordered earliest-launched first, tag native children with `(claude)` or `(codex)`, and carry tool-use count, token/context usage, elapsed time, and current activity. Task rows carry title, task ID, and elapsed time. Non-empty prompt input behaves normally. Disable it via `/agents → Settings → Activity view` to hide the shared surface.
 
 ### Agent mentions
 

@@ -521,6 +521,68 @@ describe("ConversationViewer", () => {
       expect(visibleWidth(pi)).toBeLessThan(200);
     });
 
+    it("pairs tool calls with compact results and toggles details with Ctrl+O", () => {
+      const tui = mockTui();
+      const viewer = new ConversationViewer(
+        tui,
+        mockSession([
+          {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "src/a.ts" } }],
+          },
+          {
+            role: "toolResult",
+            toolCallId: "tool-1",
+            toolName: "read",
+            content: [{ type: "text", text: "file contents" }],
+            isError: false,
+          },
+        ]),
+        mockRecord({ status: "completed" }),
+        undefined,
+        semanticTheme(),
+        vi.fn(),
+      );
+
+      const collapsed = renderContent(viewer).join("\n");
+      expect(collapsed).toContain("<success>✓</success> <muted>[Tool: read]");
+      expect(collapsed).not.toContain("file contents");
+
+      viewer.handleInput("\x0f");
+      const expanded = renderContent(viewer).join("\n");
+      expect(expanded).toContain("[Result]");
+      expect(expanded).toContain("file contents");
+      expect(tui.requestRender).toHaveBeenCalled();
+    });
+
+    it("keeps failed tool output visible while tools are collapsed", () => {
+      const viewer = new ConversationViewer(
+        mockTui(),
+        mockSession([
+          {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "missing.ts" } }],
+          },
+          {
+            role: "toolResult",
+            toolCallId: "tool-1",
+            toolName: "read",
+            content: [{ type: "text", text: "not found" }],
+            isError: true,
+          },
+        ]),
+        mockRecord({ status: "completed" }),
+        undefined,
+        semanticTheme(),
+        vi.fn(),
+      );
+      const output = renderContent(viewer).join("\n");
+
+      expect(output).toContain("<error>✗</error> <muted>[Tool: read]");
+      expect(output).toContain("[Result: Error]");
+      expect(output).toContain("not found");
+    });
+
     it("renders error tool results with error styling", () => {
       const viewer = new ConversationViewer(
         mockTui(),

@@ -17,7 +17,7 @@ import { createViewerKeys, type ViewerKeybindings, type ViewerKeys } from "./vie
 
 /** Base lines consumed by chrome: top border + header + header sep + footer sep + footer + bottom border. */
 const CHROME_LINES_BASE = 6;
-const TOOL_ARGUMENT_PREVIEW_MAX = 160;
+const TOOL_ARGUMENT_PREVIEW_MAX = 140;
 /** Coalesce streaming deltas into at most ~30 transcript paints per second. */
 const LIVE_RENDER_INTERVAL_MS = 33;
 
@@ -55,6 +55,7 @@ export class ConversationViewer implements Component {
   private closed = false;
   /** Two-press confirm guard for the stop key, so a stray key can't kill the agent. */
   private stopArmed = false;
+  private toolsExpanded = false;
   private keys: ViewerKeys;
   /** Steering composer — present while the user is typing a message to the agent. */
   private composer: Input | undefined;
@@ -64,6 +65,7 @@ export class ConversationViewer implements Component {
   private cachedContentLines: string[] = [];
   /** Finalized messages already rendered into stableContentLines. */
   private stableMessages: unknown[] = [];
+  private stableToolResults: unknown[] = [];
   private stableContentLines: string[] = [];
   private stableHasContent = false;
 
@@ -114,6 +116,13 @@ export class ConversationViewer implements Component {
       return;
     }
 
+    if (this.keys.toggleTools(data)) {
+      this.toolsExpanded = !this.toolsExpanded;
+      this.resetContentCache();
+      this.tui.requestRender();
+      return;
+    }
+
     // Enter opens the steering composer (only while the agent can still be
     // steered) — then type + Enter sends, Esc or an empty submit returns. When
     // not steerable, fall through so the key still disarms a pending stop.
@@ -155,10 +164,10 @@ export class ConversationViewer implements Component {
     } else if (this.keys.pageDown(data)) {
       this.scrollOffset = Math.min(maxScroll, this.scrollOffset + viewportHeight);
       this.autoScroll = this.scrollOffset >= maxScroll;
-    } else if (matchesKey(data, "home") || matchesKey(data, "ctrl+home")) {
+    } else if (matchesKey(data, "home") || matchesKey(data, "ctrl+home") || matchesKey(data, "alt+up")) {
       this.scrollOffset = 0;
       this.autoScroll = false;
-    } else if (matchesKey(data, "end") || matchesKey(data, "ctrl+end")) {
+    } else if (matchesKey(data, "end") || matchesKey(data, "ctrl+end") || matchesKey(data, "alt+down")) {
       this.scrollOffset = maxScroll;
       this.autoScroll = true;
     }
@@ -251,12 +260,12 @@ export class ConversationViewer implements Component {
       // full key list so the less-obvious bindings stay discoverable; it leads
       // the right group so "Esc close" is the only part that truncates first.
       const sep = th.fg("dim", " · ");
-      const actions: string[] = [];
+      const actions: string[] = [th.fg("dim", `Ctrl+O ${this.toolsExpanded ? "collapse" : "expand"} tools`)];
       if (this.canSteer()) actions.push(th.fg("dim", "Enter steer"));
       if (this.isStoppable()) {
         actions.push(this.stopArmed ? th.fg("error", "x again to STOP") : th.fg("dim", "x stop"));
       }
-      const footerRight = th.fg("dim", "↑↓ scroll · PgUp/PgDn page · Home/End jump · Esc close");
+      const footerRight = th.fg("dim", "↑↓ scroll · ⇧↑↓ page · Alt↑↓ jump · Esc close");
 
       // Prepend the line-count/scroll-% readout only when there's spare width —
       // it's the first thing dropped so it never crowds out the hints.
@@ -348,12 +357,18 @@ export class ConversationViewer implements Component {
     this.cachedContentWidth = 0;
     this.cachedContentLines = [];
     this.stableMessages = [];
+    this.stableToolResults = [];
     this.stableContentLines = [];
     this.stableHasContent = false;
   }
 
   /** Render one message without the separator that precedes it. */
-  private renderMessageBlock(msg: SubagentSession["messages"][number], width: number): string[] {
+  private renderMessageBlock(
+    msg: SubagentSession["messages"][number],
+    width: number,
+    toolResults: Map<string, SubagentSession["messages"][number]>,
+    pairedToolIds: Set<string>,
+  ): string[] {
     const th = this.theme;
     const lines: string[] = [];
     if (msg.role === "user") {
@@ -364,26 +379,44 @@ export class ConversationViewer implements Component {
     } else if (msg.role === "assistant") {
       const textParts: string[] = [];
       const thinkingParts: string[] = [];
-      const toolCalls: Array<{ name: string; preview?: string }> = [];
+      const toolCalls: Array<{ id?: string; name: string; preview?: string }> = [];
       for (const c of msg.content) {
         if (c.type === "text" && c.text) textParts.push(c.text);
         else if (c.type === "thinking" && (c.thinking || c.redacted)) {
           thinkingParts.push(c.redacted ? "[redacted]" : c.thinking);
         } else if (c.type === "toolCall") {
-          toolCalls.push({ name: c.name, preview: toolArgumentPreview(c.arguments) });
+          const call = c as typeof c & { id?: string; toolUseId?: string };
+          toolCalls.push({ id: call.id ?? call.toolUseId, name: c.name, preview: toolArgumentPreview(c.arguments) });
         }
       }
-      lines.push(th.bold("[Assistant]"));
+      if (textParts.length > 0 || thinkingParts.length > 0) lines.push(th.bold("[Assistant]"));
       if (textParts.length > 0) lines.push(...wrapTextWithAnsi(textParts.join("\n").trim(), width));
       for (const thinking of thinkingParts) {
         lines.push(th.fg("dim", "[Thinking]"));
         for (const line of wrapTextWithAnsi(thinking.trim(), width)) lines.push(th.fg("dim", line));
       }
       for (const tool of toolCalls) {
+        const result = tool.id ? toolResults.get(tool.id) : undefined;
+        const failed = result?.role === "toolResult" && !!result.isError;
+        const icon = result
+          ? (failed ? th.fg("error", "✗") : th.fg("success", "✓"))
+          : this.record.status === "running" || this.record.status === "queued"
+            ? th.fg("accent", "●")
+            : th.fg("dim", "○");
         const preview = tool.preview ? ` ${tool.preview}` : "";
-        lines.push(th.fg("muted", `  [Tool: ${tool.name}]${preview}`));
+        lines.push(`${icon} ${th.fg("muted", `[Tool: ${tool.name}]${preview}`)}`);
+        if (result?.role === "toolResult" && (this.toolsExpanded || failed)) {
+          const text = extractText(result.content);
+          const truncated = text.length > 500 ? text.slice(0, 500) + "... (truncated)" : text;
+          const color = failed ? "error" : "dim";
+          lines.push(th.fg(color, failed ? "  [Result: Error]" : "  [Result]"));
+          for (const line of wrapTextWithAnsi(truncated.trim(), Math.max(1, width - 2))) lines.push(th.fg(color, `  ${line}`));
+        }
       }
     } else if (msg.role === "toolResult") {
+      const result = msg as typeof msg & { toolCallId?: string; toolUseId?: string };
+      const id = result.toolCallId ?? result.toolUseId;
+      if (id && pairedToolIds.has(id)) return [];
       const text = extractText(msg.content);
       const truncated = text.length > 500 ? text.slice(0, 500) + "... (truncated)" : text;
       if (!truncated.trim() && !msg.isError) return [];
@@ -392,10 +425,12 @@ export class ConversationViewer implements Component {
       for (const line of wrapTextWithAnsi(truncated.trim(), width)) lines.push(th.fg(resultColor, line));
     } else if ((msg as any).role === "bashExecution") {
       const bash = msg as any;
-      lines.push(th.fg("muted", `  $ ${bash.command}`));
-      if (bash.output?.trim()) {
+      const failed = bash.cancelled || (typeof bash.exitCode === "number" && bash.exitCode !== 0);
+      const icon = failed ? th.fg("error", "✗") : th.fg("success", "✓");
+      lines.push(`${icon} ${th.fg("muted", `$ ${bash.command}`)}`);
+      if (bash.output?.trim() && (this.toolsExpanded || failed)) {
         const out = bash.output.length > 500 ? bash.output.slice(0, 500) + "... (truncated)" : bash.output;
-        for (const line of wrapTextWithAnsi(out.trim(), width)) lines.push(th.fg("dim", line));
+        for (const line of wrapTextWithAnsi(out.trim(), Math.max(1, width - 2))) lines.push(th.fg(failed ? "error" : "dim", `  ${line}`));
       }
     }
     return lines.map(line => truncateToWidth(line, width));
@@ -420,29 +455,51 @@ export class ConversationViewer implements Component {
       return this.cachedContentLines;
     }
 
+    const toolResults = new Map<string, SubagentSession["messages"][number]>();
+    const pairedToolIds = new Set<string>();
+    const resultMessages: unknown[] = [];
+    for (const message of messages) {
+      if (message.role === "assistant") {
+        for (const content of message.content) {
+          if (content.type !== "toolCall") continue;
+          const call = content as typeof content & { id?: string; toolUseId?: string };
+          const id = call.id ?? call.toolUseId;
+          if (id) pairedToolIds.add(id);
+        }
+      } else if (message.role === "toolResult") {
+        resultMessages.push(message);
+        const result = message as typeof message & { toolCallId?: string; toolUseId?: string };
+        const id = result.toolCallId ?? result.toolUseId;
+        if (id) toolResults.set(id, message);
+      }
+    }
+
     const stableCount = messages.length - 1;
     const stablePrefixStillValid = width === this.cachedContentWidth
       && this.stableMessages.length <= stableCount
       && this.stableMessages.every((message, index) => message === messages[index]);
-    if (!stablePrefixStillValid) {
+    const toolResultsStillValid = this.stableToolResults.length === resultMessages.length
+      && this.stableToolResults.every((message, index) => message === resultMessages[index]);
+    if (!stablePrefixStillValid || !toolResultsStillValid) {
       this.stableMessages = [];
       this.stableContentLines = [];
       this.stableHasContent = false;
     }
+    this.stableToolResults = resultMessages;
 
     // Completed history is immutable during ordinary streaming. Render each
     // message once; only the live tail is rebuilt for each delta. A compaction
     // replaces the prefix references, trips the guard above, and rebuilds it.
     while (this.stableMessages.length < stableCount) {
       const message = messages[this.stableMessages.length];
-      const block = this.renderMessageBlock(message, width);
+      const block = this.renderMessageBlock(message, width, toolResults, pairedToolIds);
       this.stableHasContent = this.appendBlock(this.stableContentLines, block, this.stableHasContent);
       this.stableMessages.push(message);
     }
 
     const lines = [...this.stableContentLines];
     let hasContent = this.stableHasContent;
-    const liveBlock = this.renderMessageBlock(messages[messages.length - 1], width);
+    const liveBlock = this.renderMessageBlock(messages[messages.length - 1], width, toolResults, pairedToolIds);
     hasContent = this.appendBlock(lines, liveBlock, hasContent);
 
     // Streaming indicator for running agents.

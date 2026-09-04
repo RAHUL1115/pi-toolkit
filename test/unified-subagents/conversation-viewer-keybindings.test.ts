@@ -17,6 +17,8 @@ const HOME = "\x1b[H";
 const END = "\x1b[F";
 const CTRL_HOME = "\x1b[1;5H";
 const CTRL_END = "\x1b[1;5F";
+const ALT_UP = "\x1b[1;3A";
+const ALT_DOWN = "\x1b[1;3B";
 
 function createEmacsKeybindings(): KeybindingsManager {
   return new KeybindingsManager(TUI_KEYBINDINGS, {
@@ -76,6 +78,15 @@ describe("viewer-keys", () => {
     expect(keys.scrollDown(CTRL_N)).toBe(false);
     expect(keys.pageUp(PAGE_UP)).toBe(true);
     expect(keys.pageDown(PAGE_DOWN)).toBe(true);
+    expect(keys.toggleTools("\x0f")).toBe(true);
+  });
+
+  it("respects a custom tool-expansion binding", () => {
+    const keys = createViewerKeys({
+      matches: (data, id) => id === "app.tools.expand" && data === "\x05",
+    });
+    expect(keys.toggleTools("\x05")).toBe(true);
+    expect(keys.toggleTools("\x0f")).toBe(false);
   });
 
   it("keeps the k/j and shift+arrow aliases with and without a manager", () => {
@@ -145,6 +156,7 @@ describe("ConversationViewer custom keybindings", () => {
   it.each([
     [HOME, END],
     [CTRL_HOME, CTRL_END],
+    [ALT_UP, ALT_DOWN],
   ])("jumps directly to the transcript top and bottom", (top, bottom) => {
     const viewer = createViewer();
     const bottomOffset = scrollOffset(viewer);

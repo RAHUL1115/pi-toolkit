@@ -216,9 +216,12 @@ describe("issue #142: RPC handlers + subagents:ready are gated on session_start"
     onToolActivity!({ type: "start", toolName: "bash" });
 
     expect(widgetFactory).toBeTypeOf("function");
+    const handleInput = vi.mocked(extensionCtx.ui.onTerminalInput).mock.calls[0][0];
+    handleInput("\u001b[B");
+    handleInput("\u001b[B");
     const lines = widgetFactory(
       { terminal: { columns: 120 }, requestRender: vi.fn() },
-      { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+      { fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text },
     ).render(120).join("\n");
     expect(lines).toContain("[running command]");
     expect(lines).not.toContain("[thinking]");

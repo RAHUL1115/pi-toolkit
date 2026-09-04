@@ -16,7 +16,12 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { BackgroundTaskViewer, type BackgroundTaskItem, sanitizeTaskLabel } from "./background-task-viewer.js";
+import {
+	BackgroundTaskViewer,
+	type BackgroundTaskController,
+	type BackgroundTaskItem,
+	sanitizeTaskLabel,
+} from "./background-task-viewer.js";
 
 const MAX_TIMEOUT_SECONDS = 2_147_483_647 / 1000;
 export const DEFAULT_BACKGROUND_LOG_BYTES = 2 * 1024 * 1024;
@@ -671,7 +676,11 @@ export class BackgroundBashManager {
 	}
 }
 
-export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), autoBackgroundMs = 60_000): ToolDefinition<any, any, any> {
+export type BackgroundBashToolDefinition = ToolDefinition<any, any, any> & {
+	readonly taskController: BackgroundTaskController;
+};
+
+export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), autoBackgroundMs = 60_000): BackgroundBashToolDefinition {
 	const titleContext = new AsyncLocalStorage<{ title?: string }>();
 	const manager = new BackgroundBashManager(cwd, (job) => {
 		const command = sanitizeTaskLabel(job.command);
@@ -684,6 +693,32 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 			details: { jobId: job.id, status: job.status, exitCode: job.exitCode, outputPath: job.outputPath },
 		}, { deliverAs: "followUp", triggerTurn: true });
 	}, autoBackgroundMs, (count) => pi.events.emit("background-bash:count", { running: count }));
+	const tasks: BackgroundTaskController = {
+		list: () => manager.list().map((job): BackgroundTaskItem => ({
+			id: job.id,
+			title: job.title,
+			command: job.command,
+			status: job.status,
+			pid: job.pid,
+			startedAt: job.startedAt,
+			endedAt: job.endedAt,
+			exitCode: job.exitCode,
+		})),
+		output: (id) => {
+			const job = manager.get(id);
+			return job ? manager.output(job) : "";
+		},
+		stop: async (id) => {
+			const job = manager.get(id);
+			if (job) await manager.stop(job);
+		},
+		clear: (id) => manager.clear(id).then(() => {}),
+		clearFinished: () => manager.clearFinished().then(() => {}),
+		onList: (listener) => manager.on("list", listener),
+		onOutput: (listener) => manager.on("output", (id) => {
+			if (id) listener(id);
+		}),
+	};
 	const foreground = createBashToolDefinition(cwd, {
 		operations: {
 			exec: (command, _cwd, options) => manager.runForeground(
@@ -728,32 +763,7 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 				ctx.ui.notify("/tasks requires TUI mode", "error");
 				return;
 			}
-			await ctx.ui.custom<undefined>((tui, theme, _keybindings, done) => new BackgroundTaskViewer(tui, {
-				list: () => manager.list().map((job): BackgroundTaskItem => ({
-					id: job.id,
-					title: job.title,
-					command: job.command,
-					status: job.status,
-					pid: job.pid,
-					startedAt: job.startedAt,
-					endedAt: job.endedAt,
-					exitCode: job.exitCode,
-				})),
-				output: (id) => {
-					const job = manager.get(id);
-					return job ? manager.output(job) : "";
-				},
-				stop: async (id) => {
-					const job = manager.get(id);
-					if (job) await manager.stop(job);
-				},
-				clear: (id) => manager.clear(id).then(() => {}),
-				clearFinished: () => manager.clearFinished().then(() => {}),
-				onList: (listener) => manager.on("list", listener),
-				onOutput: (listener) => manager.on("output", (id) => {
-					if (id) listener(id);
-				}),
-			}, theme, done));
+			await ctx.ui.custom<undefined>((tui, theme, _keybindings, done) => new BackgroundTaskViewer(tui, tasks, theme, done));
 		},
 	});
 
@@ -803,5 +813,6 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 	});
 
 	pi.on("session_shutdown", async () => manager.stopAll());
-	return bash as unknown as ToolDefinition<any, any, any>;
+	Object.defineProperty(bash, "taskController", { value: tasks });
+	return bash as unknown as BackgroundBashToolDefinition;
 }

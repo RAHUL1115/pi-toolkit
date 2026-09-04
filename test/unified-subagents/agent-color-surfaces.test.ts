@@ -23,6 +23,7 @@ const config: AgentConfig = {
 
 const theme = {
   fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+  bg: (color: string, text: string) => `<${color}>${text}</${color}>`,
   bold: (text: string) => `*${text}*`,
   getBgAnsi: (color: string) => `<${color}>`,
   getColorMode: () => "truecolor" as const,
@@ -200,6 +201,8 @@ describe("custom agent color runtime surfaces", () => {
 
     try {
       fleet.update();
+      fleet.handleKey("\u001b[B");
+      fleet.handleKey("\u001b[B");
       const output = factory?.(
         { requestRender: vi.fn(), terminal: { columns: 120, rows: 40 } },
         theme,
@@ -213,7 +216,7 @@ describe("custom agent color runtime surfaces", () => {
         { requestRender: vi.fn(), terminal: { columns: 120, rows: 40 } },
         theme,
       ).render(120).join("\n");
-      expect(fallback).toContain(`<muted>${DISPLAY_NAME}</muted>`);
+      expect(fallback).toContain(`<text>${DISPLAY_NAME}</text>`);
       expect(fallback).not.toContain(PURPLE_BACKGROUND);
     } finally {
       fleet.dispose();

@@ -1,5 +1,6 @@
 import { Editor, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
+import type { BackgroundTaskController, BackgroundTaskItem } from "../../pi-toolkit-lib/background-task-viewer.js";
 import type { AgentManager } from "../../pi-toolkit-lib/unified-subagents/agent-manager.js";
 import { registerAgents } from "../../pi-toolkit-lib/unified-subagents/agent-types.js";
 import type { AgentConfig, AgentRecord } from "../../pi-toolkit-lib/unified-subagents/types.js";
@@ -17,7 +18,11 @@ const CTRL_B = "\x02";
 // Kitty-protocol key-RELEASE for ↓ (event type 3) — listeners receive these too.
 const DOWN_RELEASE = "\x1b[1;1:3B";
 
-const theme = { fg: (c: string, s: string) => `<${c}>${s}</${c}>`, bold: (s: string) => `*${s}*` };
+const theme = {
+  fg: (c: string, s: string) => `<${c}>${s}</${c}>`,
+  bg: (c: string, s: string) => `<${c}>${s}</${c}>`,
+  bold: (s: string) => `*${s}*`,
+};
 
 /** An agent that renders as a badge — no default agent configures a color. */
 const BADGED_TYPE = "colored-reviewer";
@@ -43,6 +48,17 @@ function plain(row: string): string {
 
 /** A no-op session so a record is "openable" by default (the list hides session-less agents). */
 const FAKE_SESSION = { subscribe: () => () => {}, messages: [] };
+
+function makeTask(over: Partial<BackgroundTaskItem> = {}): BackgroundTaskItem {
+  return {
+    id: "bash-1",
+    title: "Run tests",
+    command: "npm test",
+    status: "running",
+    startedAt: Date.now(),
+    ...over,
+  };
+}
 
 function makeRecord(over: Partial<AgentRecord> = {}): AgentRecord {
   return {
@@ -78,8 +94,9 @@ interface Harness {
   fleet: FleetList;
   ui: FleetUICtx;
   manager: AgentManager;
+  tasks: BackgroundTaskController;
   /** The overlay component (a real ConversationViewer) once one is opened. */
-  overlayComponent: () => { handleInput(data: string): void } | undefined;
+  overlayComponent: () => { handleInput(data: string): void; render?(width: number): string[] } | undefined;
   /** Feed a key to the registered input handler; returns the consume result. */
   press: (data: string) => { consume?: boolean } | undefined;
   /** Render the currently-registered below-editor widget at the given width. */
@@ -95,13 +112,17 @@ interface Harness {
   widgetTui: { requestRender(): void; focusedComponent?: unknown };
 }
 
-function harness(agents: AgentRecord[], activity: Map<string, AgentActivity> = new Map()): Harness {
+function harness(
+  agents: AgentRecord[],
+  activity: Map<string, AgentActivity> = new Map(),
+  taskItems: BackgroundTaskItem[] = [],
+): Harness {
   let inputHandler: ((data: string) => { consume?: boolean } | undefined) | undefined;
   let widgetFactory: ((tui: any, theme: any) => { render(w: number): string[] }) | undefined;
   let editorText = "";
   let opened = false;
   let closed = false;
-  let overlayComponent: { handleInput(data: string): void } | undefined;
+  let overlayComponent: { handleInput(data: string): void; render?(width: number): string[] } | undefined;
   let openedOverlayOptions: unknown;
   const fakeTui = { requestRender: () => {}, terminal: { columns: 120, rows: 40 } };
 
@@ -123,7 +144,14 @@ function harness(agents: AgentRecord[], activity: Map<string, AgentActivity> = n
   };
 
   const manager = fakeManager(agents);
-  const fleet = new FleetList(manager, activity);
+  const tasks: BackgroundTaskController = {
+    list: () => taskItems,
+    output: () => "task output",
+    stop: vi.fn(async () => {}),
+    clear: vi.fn(async () => {}),
+    clearFinished: vi.fn(async () => {}),
+  };
+  const fleet = new FleetList(manager, activity, undefined, tasks);
   fleet.setUICtx(ui);
   fleet.update();
 
@@ -131,6 +159,7 @@ function harness(agents: AgentRecord[], activity: Map<string, AgentActivity> = n
     fleet,
     ui,
     manager,
+    tasks,
     overlayComponent: () => overlayComponent,
     press: (data) => inputHandler?.(data),
     render: (width = 120) => (widgetFactory ? widgetFactory(fakeTui, theme).render(width) : []),
@@ -140,6 +169,11 @@ function harness(agents: AgentRecord[], activity: Map<string, AgentActivity> = n
     overlayOptions: () => openedOverlayOptions,
     widgetTui: fakeTui,
   };
+}
+
+function enterRows(h: Harness): void {
+  h.press(DOWN);
+  h.press(DOWN);
 }
 
 describe("formatFleetElapsed", () => {
@@ -173,22 +207,70 @@ describe("FleetList navigation", () => {
       makeRecord({ id: "top", description: "top-level" }),
       makeRecord({ id: "nested", description: "nested-child", parentAgentId: "top" }),
     ]);
+    enterRows(h);
     const output = h.render().join("\n");
     expect(output).toContain("top-level");
     expect(output).not.toContain("nested-child");
   });
 
-  it("activates on ↓ at an empty prompt, consuming the key", () => {
+  it("focuses tabs first and expands rows on a second ↓ even with one category", () => {
     const h = harness([makeRecord()]);
-    const res = h.press(DOWN);
-    expect(res).toEqual({ consume: true });
-    // main selected, list active → nav hint shown
+    expect(h.press(DOWN)).toEqual({ consume: true });
+    expect(h.render().some(l => l.includes("↓ enter"))).toBe(true);
+    expect(h.render().join("\n")).not.toContain("Sleep then report 1");
+    expect(h.press(DOWN)).toEqual({ consume: true });
     expect(h.render().some(l => l.includes("enter view"))).toBe(true);
+    expect(h.render().join("\n")).toContain("<accent>●</accent>");
   });
 
-  it("also activates on ← (matches the '← for agents' hint)", () => {
+  it("does not activate on ←", () => {
     const h = harness([makeRecord()]);
+    expect(h.press(LEFT)).toBeUndefined();
+  });
+
+  it("uses a tab level when tasks and agents are both running", () => {
+    const h = harness([makeRecord()], new Map(), [makeTask()]);
+    h.press(DOWN);
+    expect(h.render(240).join("\n")).toContain("←→ switch");
+    expect(h.render(240).join("\n")).toContain("<selectedBg>*<accent> Agents 1 </accent>");
     expect(h.press(LEFT)).toEqual({ consume: true });
+    expect(h.render(240).join("\n")).toContain("<selectedBg>*<accent> Tasks 1 </accent>");
+    h.press(DOWN);
+    expect(h.render(240).find(line => line.includes("Run tests"))).toContain("●");
+  });
+
+  it("switches tabs with ←/→ while row navigation is active", () => {
+    const h = harness([makeRecord()], new Map(), [makeTask()]);
+    h.press(DOWN); // tabs, Agents selected
+    h.press(DOWN); // agent rows
+    expect(h.press(LEFT)).toEqual({ consume: true });
+    expect(h.render().find(line => line.includes("Run tests"))).toContain("●");
+    expect(h.press(RIGHT)).toEqual({ consume: true });
+    const output = h.render().join("\n");
+    expect(output).toContain("<selectedBg>*<text> Agents 1 </text>");
+    expect(output).toContain("<accent>●</accent>");
+  });
+
+  it("collapses inactive rows to gray counters and keeps expanded rows tight", () => {
+    const h = harness([makeRecord()], new Map(), [makeTask()]);
+    const collapsed = h.render(240);
+    expect(collapsed[0]).toContain("<selectedBg><muted> Tasks 1 </muted></selectedBg>");
+    expect(collapsed[0]).toContain("<selectedBg><muted> Agents 1 </muted></selectedBg>");
+    expect(collapsed[0]).toContain("↓ to manage");
+    expect(collapsed).toHaveLength(2);
+
+    enterRows(h);
+    const expanded = h.render(240);
+    expect(expanded[0]).toContain("<selectedBg>*<text> Agents 1 </text>");
+    expect(expanded[1]).toContain("Sleep then report 1");
+    expect(expanded.at(-1)).toBe("");
+    expect(expanded.join("\n")).not.toContain("[Tasks");
+  });
+
+  it("shows only categories with running work", () => {
+    const completed = makeTask({ status: "exited", exitCode: 0 });
+    const output = harness([makeRecord({ status: "completed" })], new Map(), [completed]).render();
+    expect(output).toEqual([]);
   });
 
   it("does NOT activate when the prompt is non-empty (typing is preserved)", () => {
@@ -202,10 +284,10 @@ describe("FleetList navigation", () => {
       makeRecord({ id: "a1", description: "one" }),
       makeRecord({ id: "a2", description: "two" }),
     ]);
-    h.press(DOWN);          // activate → selection on main (idx 0)
+    h.press(DOWN);          // activate tab
     h.press(DOWN_RELEASE);  // release half of the SAME tap — must be a no-op
-    expect(h.render().find(l => l.includes("main"))).toContain("●");
-    h.press(DOWN);          // a real second tap → first agent
+    expect(h.render().some(l => l.includes("one"))).toBe(false);
+    h.press(DOWN);          // enter first row
     h.press(DOWN_RELEASE);
     expect(h.render().find(l => l.includes("one"))).toContain("●");
     expect(h.render().find(l => l.includes("two"))).toContain("○");
@@ -216,8 +298,7 @@ describe("FleetList navigation", () => {
       makeRecord({ id: "a1", description: "one" }),
       makeRecord({ id: "a2", description: "two" }),
     ]);
-    h.press(DOWN); // activate → main
-    h.press(DOWN); // → a1
+    enterRows(h);
     const selected = h.render().find(l => l.includes("one"))!;
     // Selection marker keeps accent color; row content uses primary text color.
     expect(selected).toContain("<accent>●</accent>");
@@ -241,12 +322,13 @@ describe("FleetList navigation", () => {
         makeRecord({ id: "a1", type: BADGED_TYPE, description: "one" }),
         makeRecord({ id: "a2", type: BADGED_TYPE, description: "two" }),
       ]);
-      h.press(DOWN); // activate → main
+      enterRows(h);
+      h.press(DOWN); // select a2, leaving a1 unselected
       const before = h.render().find(l => l.includes("one"))!;
       expect(before).toContain(`${PURPLE_BACKGROUND}`);
       expect(before).toContain(` ${BADGED_CONFIG.displayName} `);
 
-      h.press(DOWN); // → a1
+      h.press(UP); // select a1
       const selected = h.render().find(l => l.includes("one"))!;
       // Selection bolds the badge rather than repainting it (Claude Code's FleetView) …
       expect(selected).toContain(PURPLE_BACKGROUND);
@@ -265,35 +347,44 @@ describe("FleetList navigation", () => {
       makeRecord({ id: "a2", description: "two" }),
     ];
     const h = harness(agents);
-    h.press(DOWN); // activate → index 0 (main)
-    h.press(DOWN); // → 1 (a1)
+    enterRows(h);
     expect(h.render().find(l => l.includes("one"))).toContain("●");
-    h.press(DOWN); // → 2 (a2)
-    h.press(DOWN); // clamp at 2
+    h.press(DOWN); // → a2
+    h.press(DOWN); // clamp at a2
     expect(h.render().find(l => l.includes("two"))).toContain("●");
     expect(h.render().find(l => l.includes("one"))).toContain("○");
   });
 
-  it("↑ above 'main' deactivates (returns to the prompt)", () => {
+  it("↑ from the first row collapses to tabs, then ↑ returns to the editor", () => {
     const h = harness([makeRecord()]);
-    h.press(DOWN); // activate, index 0
+    enterRows(h);
     expect(h.press(UP)).toEqual({ consume: true });
-    // back to inactive hint
-    expect(h.render().some(l => l.includes("← for agents"))).toBe(true);
+    expect(h.render().some(l => l.includes("Sleep then report 1"))).toBe(false);
+    expect(h.render().some(l => l.includes("↓ enter"))).toBe(true);
+    expect(h.press(UP)).toEqual({ consume: true });
+    expect(h.render().some(l => l.includes("↓ to manage"))).toBe(true);
+  });
+
+  it("↑ from the first row returns to tabs when both categories exist", () => {
+    const h = harness([makeRecord()], new Map(), [makeTask()]);
+    h.press(DOWN); // tabs
+    h.press(DOWN); // agent row
+    expect(h.press(UP)).toEqual({ consume: true });
+    expect(h.render(240).some(l => l.includes("←→ switch"))).toBe(true);
   });
 
   it("Esc deactivates", () => {
     const h = harness([makeRecord()]);
     h.press(DOWN);
     expect(h.press(ESC)).toEqual({ consume: true });
-    expect(h.render().some(l => l.includes("← for agents"))).toBe(true);
+    expect(h.render().some(l => l.includes("↓ to manage"))).toBe(true);
   });
 
   it("passes non-nav keys through and cancels navigation", () => {
     const h = harness([makeRecord()]);
     h.press(DOWN);
-    expect(h.press(RIGHT)).toBeUndefined();
-    expect(h.render().some(l => l.includes("← for agents"))).toBe(true);
+    expect(h.press("z")).toBeUndefined();
+    expect(h.render().some(l => l.includes("↓ to manage"))).toBe(true);
   });
 
   it("backgrounds a running foreground agent with Ctrl+B", () => {
@@ -393,7 +484,7 @@ describe("FleetList vs other focused components (#123)", () => {
     expect(h.press(ENTER)).toBeUndefined();
     expect(h.press(ESC)).toBeUndefined();
     // and the list dropped back to its inactive hint
-    expect(h.render().some(l => l.includes("← for agents"))).toBe(true);
+    expect(h.render().some(l => l.includes("↓ to manage"))).toBe(true);
   });
 
   it("still activates when the prompt editor has focus", () => {
@@ -410,14 +501,15 @@ describe("FleetList vs other focused components (#123)", () => {
 });
 
 describe("FleetList rendering", () => {
-  it("renders main + agent rows with markers, type, description and right-aligned stats", () => {
+  it("renders an agent tab and rows with type, description and right-aligned stats", () => {
     const h = harness([makeRecord({ description: "Sleep then report 1" })]);
-    const lines = h.render(120);
-    // hint + blank + main + one agent
-    expect(lines[0]).toContain("← for agents");
-    expect(lines.find(l => l.includes("main"))).toContain("●"); // main selected by default
+    enterRows(h);
+    const lines = h.render(240);
+    expect(lines[0]).toContain("enter view");
+    expect(lines.join("\n")).toContain("Agents 1");
+    expect(lines.join("\n")).not.toContain("main");
     const agentLine = lines.find(l => l.includes("Sleep then report 1"))!;
-    expect(agentLine).toContain("○");
+    expect(agentLine).toContain("●");
     expect(agentLine).toContain(getDisplayName("general-purpose"));
     expect(agentLine).toContain("[thinking]");
     expect(agentLine).not.toContain("(pi)");
@@ -427,11 +519,13 @@ describe("FleetList rendering", () => {
   });
 
   it("tags native harness rows while preserving right-aligned stats", () => {
-    const lines = harness([
+    const h = harness([
       makeRecord({ id: "pi", description: "pi row" }),
       makeRecord({ id: "claude", harness: "claude", description: "claude row" }),
       makeRecord({ id: "codex", harness: "codex", description: "codex row" }),
-    ]).render(120);
+    ]);
+    enterRows(h);
+    const lines = h.render(120);
     const piLine = lines.find(l => l.includes("pi row"))!;
     const claudeLine = lines.find(l => l.includes("claude row"))!;
     const codexLine = lines.find(l => l.includes("codex row"))!;
@@ -458,13 +552,15 @@ describe("FleetList rendering", () => {
         }),
       } as any,
     }]]);
-    const lines = harness([makeRecord()], activity).render(200);
+    const h = harness([makeRecord()], activity);
+    enterRows(h);
+    const lines = h.render(200);
     const summary = lines.find(line => line.includes("Sleep then report 1"))!;
     expect(summary).toContain("[running command]");
     expect(summary).toContain("3 tool uses · ↓ 13.1k token");
     expect(summary).toContain("<warning>73%</warning>");
     expect(summary).toMatch(/ · \d+s/);
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(3);
   });
 
   it("orders agents earliest-launched first (top)", () => {
@@ -472,7 +568,9 @@ describe("FleetList rendering", () => {
       makeRecord({ id: "new", description: "newest", startedAt: 2000 }),
       makeRecord({ id: "old", description: "oldest", startedAt: 1000 }),
     ];
-    const lines = harness(agents).render();
+    const h = harness(agents);
+    enterRows(h);
+    const lines = h.render(240);
     const oldIdx = lines.findIndex(l => l.includes("oldest"));
     const newIdx = lines.findIndex(l => l.includes("newest"));
     expect(oldIdx).toBeGreaterThanOrEqual(0);
@@ -484,7 +582,9 @@ describe("FleetList rendering", () => {
       makeRecord({ id: "live", description: "running one" }),
       makeRecord({ id: "pending", description: "queued one", status: "queued", session: undefined }),
     ];
-    const lines = harness(agents).render();
+    const h = harness(agents);
+    enterRows(h);
+    const lines = h.render();
     expect(lines.some(l => l.includes("running one"))).toBe(true);
     expect(lines.some(l => l.includes("queued one"))).toBe(true);
   });
@@ -493,6 +593,7 @@ describe("FleetList rendering", () => {
     const agents = Array.from({ length: 8 }, (_, i) =>
       makeRecord({ id: `a${i}`, description: `report ${i}` }));
     const h = harness(agents);
+    enterRows(h);
     const lines = h.render(120);
     // 8 agents, cap 5 visible → "↓ 3 more"
     expect(lines.some(l => l.includes("↓ 3 more"))).toBe(true);
@@ -502,6 +603,7 @@ describe("FleetList rendering", () => {
     const agents = Array.from({ length: 8 }, (_, i) =>
       makeRecord({ id: `a${i}`, description: `a very long agent description number ${i} that keeps going` }));
     const h = harness(agents);
+    enterRows(h);
     for (const w of [4, 8, 12, 20, 40, 80, 200]) {
       for (const line of h.render(w)) {
         expect(visibleWidth(line)).toBeLessThanOrEqual(w);
@@ -513,28 +615,18 @@ describe("FleetList rendering", () => {
     const agents = Array.from({ length: 8 }, (_, i) =>
       makeRecord({ id: `a${i}`, description: `report ${i}` }));
     const h = harness(agents);
-    h.press(DOWN); // activate (main)
-    // step down to the last agent (8 agents → roster index 8)
-    for (let i = 0; i < 8; i++) h.press(DOWN);
+    enterRows(h);
+    for (let i = 1; i < 8; i++) h.press(DOWN);
     const lines = h.render(120);
     expect(lines.find(l => l.includes("report 7"))).toContain("●");
     expect(lines.some(l => l.includes("↑"))).toBe(true); // hidden-above indicator
   });
 });
 
-describe("FleetList overlay lifecycle", () => {
-  it("Enter on 'main' just deactivates (no overlay)", () => {
-    const h = harness([makeRecord()]);
-    h.press(DOWN); // active, index 0 (main)
-    h.press(ENTER);
-    expect(h.overlayOpened()).toBe(false); // never opened an overlay
-    expect(h.render().some(l => l.includes("← for agents"))).toBe(true);
-  });
-
+describe("FleetList detail lifecycle", () => {
   it.each(["pi", "claude", "codex"] as const)("Enter opens a %s agent in the full-screen viewer", (agentHarness) => {
     const h = harness([makeRecord({ harness: agentHarness })]);
-    h.press(DOWN); // activate (main)
-    h.press(DOWN); // agent
+    enterRows(h);
     h.press(ENTER);
 
     expect(h.overlayOpened()).toBe(true);
@@ -544,61 +636,62 @@ describe("FleetList overlay lifecycle", () => {
     });
   });
 
-  it("Esc from the viewer deactivates FleetView and returns to the editor", async () => {
+  it("Enter opens the task viewer focused on the selected task", () => {
+    const tasks = [makeTask({ id: "bash-1", title: "first" }), makeTask({ id: "bash-2", title: "second" })];
+    const h = harness([], new Map(), tasks);
+    enterRows(h);
+    h.press(DOWN); // second task
+    h.press(ENTER);
+
+    expect(h.overlayOpened()).toBe(true);
+    expect(h.overlayOptions()).toBeUndefined();
+    expect(h.overlayComponent()?.render?.(100).join("\n")).toContain("bash-2 · 1-1/1");
+  });
+
+  it("Esc from the viewer deactivates the activity list and returns to the editor", async () => {
     const h = harness([makeRecord({ id: "a1", description: "one" })]);
-    h.press(DOWN); // activate (main)
-    h.press(DOWN); // agent
+    enterRows(h);
     h.press(ENTER);
 
     h.overlayComponent()?.handleInput(ESC);
     await Promise.resolve();
 
-    expect(h.render().some(l => l.includes("← for agents"))).toBe(true);
-    expect(h.render().find(l => l.includes("main"))).toContain("●");
-    expect(h.render().find(l => l.includes("one"))).toContain("○");
+    expect(h.render().some(l => l.includes("↓ to manage"))).toBe(true);
+    expect(h.render().some(l => l.includes("one"))).toBe(false);
     expect(h.press(DOWN)).toEqual({ consume: true });
   });
 
   it("wires the viewer's steer composer to manager.steer with the agent id", () => {
     const agents = [makeRecord({ id: "live", description: "the one" })];
     const h = harness(agents);
-    h.press(DOWN);  // activate (main)
-    h.press(DOWN);  // → the agent
-    h.press(ENTER); // open the conversation viewer
+    enterRows(h);
+    h.press(ENTER);
 
     const viewer = h.overlayComponent();
     expect(viewer).toBeDefined();
-    viewer!.handleInput("\r");                       // Enter → open composer
+    viewer!.handleInput("\r");
     for (const ch of "go left") viewer!.handleInput(ch);
-    viewer!.handleInput("\r");                       // Enter → send
+    viewer!.handleInput("\r");
 
     expect(h.manager.steer).toHaveBeenCalledWith("live", "go left");
   });
 
-  it("does NOT auto-close when the viewed agent finishes (final output stays readable)", () => {
+  it("keeps an open agent viewer alive after the agent finishes", () => {
     const agents = [makeRecord({ id: "live", description: "the one" })];
     const h = harness(agents);
-    h.press(DOWN); // active (main)
-    h.press(DOWN); // → the agent
-    h.press(ENTER); // opens overlay
+    enterRows(h);
+    h.press(ENTER);
     expect(h.overlayOpened()).toBe(true);
-    // The agent finishes, well past the linger window...
-    agents[0] = makeRecord({ id: "live", description: "the one", status: "completed", completedAt: Date.now() - 60_000 });
-    h.fleet.onAgentFinished("live");
-    expect(h.overlayClosed()).toBe(false);                          // viewer stays open
-    expect(h.render().some(l => l.includes("the one"))).toBe(true); // and stays listed while viewed
-  });
 
-  it("lingers a finished agent in the list, then drops it after the window", () => {
-    const recent = makeRecord({ id: "r", description: "recent done", status: "completed", completedAt: Date.now() });
-    expect(harness([recent]).render().some(l => l.includes("recent done"))).toBe(true);
-    const old = makeRecord({ id: "o", description: "old done", status: "completed", completedAt: Date.now() - 60_000 });
-    expect(harness([old]).render().some(l => l.includes("old done"))).toBe(false);
+    agents[0] = makeRecord({ id: "live", description: "the one", status: "completed", completedAt: Date.now() });
+    h.fleet.onAgentFinished("live");
+    expect(h.overlayClosed()).toBe(false);
+    expect(h.render()).toEqual([]);
   });
 });
 
 describe("FleetList cost display", () => {
-  const theme = { fg: (_c: string, s: string) => s, bold: (s: string) => s };
+  const theme = { fg: (_c: string, s: string) => s, bg: (_c: string, s: string) => s, bold: (s: string) => s };
 
   function row(showCost: boolean, cost: number, activity?: Map<string, AgentActivity>): string {
     const record = makeRecord({ lifetimeUsage: { input: 13100, output: 0, cacheWrite: 0, cost } });
@@ -612,6 +705,8 @@ describe("FleetList cost display", () => {
       custom: (() => new Promise(() => {})) as any,
     } as any);
     fleet.update();
+    fleet.handleKey(DOWN);
+    fleet.handleKey(DOWN);
     return factory({ requestRender: () => {}, terminal: { columns: 120, rows: 40 } }, theme).render(120).join("\n");
   }
 

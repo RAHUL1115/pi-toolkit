@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { defineTool, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, getAgentDir, getSettingsListTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Key, matchesKey, type SettingItem, SettingsList, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import type { BackgroundTaskController } from "../background-task-viewer.js";
 import { abortable } from "./abortable.js";
 import { hasAgentBadge, renderAgentName } from "./agent-color.js";
 import { buildNewAgentFile, disableInContent, enableInContent, isEmptyStub, locateAgentFile, personalAgentsDir, projectAgentsDir, serializeAgentFile } from "./agent-file-toggle.js";
@@ -308,7 +309,7 @@ export function formatToolsSuffix(cfg: AgentConfig | undefined): string {
   return isFullSet ? "*" : tools.join(", ");
 }
 
-export function registerUnifiedSubagents(pi: ExtensionAPI): void {
+export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTaskController): void {
   // Child AgentSessions load normal extensions. Re-entering this extension there
   // would create another manager and leak handlers. Nested orchestration is
   // injected as scoped custom tools by the existing manager instead.
@@ -1083,9 +1084,9 @@ export function registerUnifiedSubagents(pi: ExtensionAPI): void {
     await manager.dispose();
   });
 
-  // FleetView is the sole live progress surface. Keep the legacy widget mode
-  // setting readable for configuration compatibility, but never render the
-  // above-editor Agents widget—even when FleetView itself is disabled.
+  // FleetView is the sole live task/agent progress surface. Keep the legacy
+  // widget mode setting readable for configuration compatibility, but never
+  // render the above-editor Agents widget—even when FleetView is disabled.
   let fleetViewEnabled = true;
   let widgetMode: WidgetMode = "background";
   function getWidgetMode(): WidgetMode { return widgetMode; }
@@ -1093,8 +1094,8 @@ export function registerUnifiedSubagents(pi: ExtensionAPI): void {
   const widget = new AgentWidget(manager, agentActivity, getEffectiveWidgetMode, isShowCostEnabled, isShowModelEnabled);
   function setWidgetMode(m: WidgetMode): void { widgetMode = m; widget.update(); }
 
-  // Claude Code-style FleetView: navigable list of main + subagents below the editor.
-  const fleet = new FleetList(manager, agentActivity, isShowCostEnabled);
+  // Navigable activity list for running background tasks and top-level subagents.
+  const fleet = new FleetList(manager, agentActivity, isShowCostEnabled, tasks);
   function isFleetViewEnabled(): boolean { return fleetViewEnabled; }
   function setFleetViewEnabled(b: boolean): void {
     fleetViewEnabled = b;
@@ -3140,8 +3141,8 @@ Write the file using the write tool. Only write the file, nothing else.`;
         },
         {
           id: "fleetView",
-          label: "Fleet view",
-          description: "Single live agent-progress surface below the editor (↓/← to navigate, Enter to view). Turning it off restores the Widget setting.",
+          label: "Activity view",
+          description: "Collapsed running Tasks/Agents counters below the editor (↓ twice to expand rows, ←/→ to switch).",
           currentValue: isFleetViewEnabled() ? "on" : "off",
           values: ["on", "off"],
         },
@@ -3162,7 +3163,7 @@ Write the file using the write tool. Only write the file, nothing else.`;
         {
           id: "widgetMode",
           label: "Widget",
-          description: "Fallback above-editor widget used only when Fleet view is off: all = every agent; background = background only; off = hidden.",
+          description: "Compatibility setting retained for existing configuration; the above-editor widget stays hidden.",
           currentValue: getWidgetMode(),
           values: ["all", "background", "off"],
         },
@@ -3295,7 +3296,7 @@ Write the file using the write tool. Only write the file, nothing else.`;
       } else if (id === "fleetView") {
         const enabled = value === "on";
         setFleetViewEnabled(enabled);
-        notifyApplied(ctx, `Fleet view ${enabled ? "enabled" : "disabled"}`);
+        notifyApplied(ctx, `Activity view ${enabled ? "enabled" : "disabled"}`);
       } else if (id === "agentMentions") {
         const mode = value as AgentMentionMode;
         setAgentMentionMode(mode);

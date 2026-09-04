@@ -91,7 +91,9 @@ export class BackgroundTaskViewer {
 		private tasks: BackgroundTaskController,
 		private theme: Theme,
 		private done: (result: undefined) => void,
+		initialSelectedId?: string,
 	) {
+		this.selectedId = initialSelectedId;
 		if (tasks.onList) this.unsubscribe.push(tasks.onList(() => this.onListChanged()));
 		if (tasks.onOutput) this.unsubscribe.push(tasks.onOutput((id) => this.onOutputChanged(id)));
 		this.syncTasks(tasks.list());
@@ -210,23 +212,23 @@ export class BackgroundTaskViewer {
 		const tasks = this.tasks.list();
 		this.syncTasks(tasks);
 		const selectedTask = tasks.find((task) => task.id === this.selectedId);
-		if (matchesKey(data, "up") || matchesKey(data, "k")) {
+		if (matchesKey(data, "up")) {
 			this.select(tasks, this.selectedIndex - 1);
-		} else if (matchesKey(data, "down") || matchesKey(data, "j")) {
+		} else if (matchesKey(data, "down")) {
 			this.select(tasks, this.selectedIndex + 1);
-		} else if (matchesKey(data, "shift+k")) {
+		} else if (matchesKey(data, "k")) {
 			this.scrollOutput(-1);
-		} else if (matchesKey(data, "shift+j")) {
+		} else if (matchesKey(data, "j")) {
 			this.scrollOutput(1);
-		} else if (matchesKey(data, "pageUp")) {
+		} else if (matchesKey(data, "shift+up") || matchesKey(data, "pageUp")) {
 			this.scrollOutput(-PREVIEW_LINES);
-		} else if (matchesKey(data, "pageDown")) {
+		} else if (matchesKey(data, "shift+down") || matchesKey(data, "pageDown")) {
 			this.scrollOutput(PREVIEW_LINES);
-		} else if (matchesKey(data, "g")) {
+		} else if (matchesKey(data, "alt+up") || matchesKey(data, "g")) {
 			this.following = false;
 			this.outputStart = 0;
 			this.armed = undefined;
-		} else if (matchesKey(data, "shift+g")) {
+		} else if (matchesKey(data, "alt+down") || matchesKey(data, "shift+g")) {
 			this.following = true;
 			this.outputStart = Math.max(0, this.cachedOutput.length - PREVIEW_LINES);
 			this.armed = undefined;
@@ -286,7 +288,7 @@ export class BackgroundTaskViewer {
 			else for (const line of preview) lines.push(row(this.theme.fg("muted", line)));
 			lines.push(separator);
 		}
-		let help = "↑↓/k j tasks · K/J/Pg scroll · g/G top/follow · x stop · c/Del clear · C clear finished";
+		let help = "↑↓ tasks · J/K lines · ⇧↑↓ pages · Alt↑↓ top/end · x stop · c/Del clear · C clear finished";
 		if (this.armed?.kind === "stop") help = "Press x again to stop this task (output will be retained)";
 		else if (this.armed?.kind === "clear") help = `Press ${this.armed.key === "delete" ? "Delete" : "c"} again to clear this finished task`;
 		else if (this.armed?.kind === "clear-all") help = "Press C again to clear all finished tasks";

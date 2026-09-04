@@ -847,7 +847,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	registerFinalResponseTracking(pi);
 	if (settings.dollarSkills) registerSkillLoader(pi);
 	if (settings.autoSessionTitles) registerAutomaticSessionTitles(pi);
-	registerUnifiedSubagents(pi);
+	registerUnifiedSubagents(pi, backgroundBash.taskController);
 
 	pi.registerCommand("ptk", {
 		description: "Toggle Pi Toolkit workflow features",

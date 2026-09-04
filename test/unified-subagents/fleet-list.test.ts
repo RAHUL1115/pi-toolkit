@@ -648,7 +648,7 @@ describe("FleetList detail lifecycle", () => {
     expect(h.overlayComponent()?.render?.(100).join("\n")).toContain("bash-2 · 1-1/1");
   });
 
-  it("Esc from the viewer deactivates the activity list and returns to the editor", async () => {
+  it("Esc from an agent viewer returns to the originating agent list", async () => {
     const h = harness([makeRecord({ id: "a1", description: "one" })]);
     enterRows(h);
     h.press(ENTER);
@@ -656,9 +656,21 @@ describe("FleetList detail lifecycle", () => {
     h.overlayComponent()?.handleInput(ESC);
     await Promise.resolve();
 
-    expect(h.render().some(l => l.includes("↓ to manage"))).toBe(true);
-    expect(h.render().some(l => l.includes("one"))).toBe(false);
-    expect(h.press(DOWN)).toEqual({ consume: true });
+    expect(h.render().some(l => l.includes("enter view"))).toBe(true);
+    expect(h.render().find(l => l.includes("one"))).toContain("●");
+  });
+
+  it("Esc from a task viewer returns to the originating task list", async () => {
+    const h = harness([], new Map(), [makeTask({ title: "first" }), makeTask({ id: "bash-2", title: "second" })]);
+    enterRows(h);
+    h.press(DOWN);
+    h.press(ENTER);
+
+    h.overlayComponent()?.handleInput(ESC);
+    await Promise.resolve();
+
+    expect(h.render().some(l => l.includes("enter view"))).toBe(true);
+    expect(h.render().find(l => l.includes("second"))).toContain("●");
   });
 
   it("wires the viewer's steer composer to manager.steer with the agent id", () => {

@@ -122,7 +122,7 @@ While background work is running, a navigable activity list renders **below** th
 
 The count-bearing tab labels use filled theme backgrounds. Tabs and hints share one line, rows begin immediately below, and one blank line separates the activity surface from the footer.
 
-While inactive, the surface collapses to muted `Tasks N | Agents N` counters with filled theme backgrounds. The first `↓` always focuses the tabs—even when only one category exists—and a second `↓` expands and enters the selected rows. Left/Right switches categories from either tabs or rows. `↑` from the first row collapses back to the tabs; another `↑` or `Esc` returns to the editor. `Enter` opens the selected agent's full-screen conversation viewer or `/tasks` focused on the selected task.
+While inactive, the surface collapses to muted `Tasks N | Agents N` counters with filled theme backgrounds. The first `↓` always focuses the tabs—even when only one category exists—and a second `↓` expands and enters the selected rows. Left/Right switches categories from either tabs or rows. `↑` from the first row collapses back to the tabs; another `↑` or `Esc` returns to the editor. `Enter` opens the selected agent's full-screen conversation viewer or `/tasks` focused on the selected task; closing the detail view returns to its Activity list.
 
 Only running tasks and running/queued top-level agents appear. Agent rows are ordered earliest-launched first, tag native children with `(claude)` or `(codex)`, and carry tool-use count, token/context usage, elapsed time, and current activity. Task rows carry title, task ID, and elapsed time. Non-empty prompt input behaves normally. Disable it via `/agents → Settings → Activity view` to hide the shared surface.
 

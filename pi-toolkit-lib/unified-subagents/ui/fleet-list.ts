@@ -352,7 +352,8 @@ export class FleetList {
 
   private clearViewer(): void {
     this.viewerClose = undefined;
-    this.deactivate();
+    this.focus = this.availableTabs().length > 0 ? "rows" : undefined;
+    this.update();
   }
 
   // ---- Rendering ----

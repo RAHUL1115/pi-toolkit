@@ -2,9 +2,18 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentManager } from "../../pi-toolkit-lib/unified-subagents/agent-manager.js";
 import { getBackend, type SubagentSession } from "../../pi-toolkit-lib/unified-subagents/backend.js";
+import { agyBackend } from "../../pi-toolkit-lib/unified-subagents/backends/agy.js";
 import { claudeBackend } from "../../pi-toolkit-lib/unified-subagents/backends/claude.js";
 import { codexBackend } from "../../pi-toolkit-lib/unified-subagents/backends/codex.js";
 import { piBackend } from "../../pi-toolkit-lib/unified-subagents/backends/pi.js";
+
+vi.mock("../../pi-toolkit-lib/unified-subagents/backends/agy.js", () => ({
+  agyBackend: {
+    harness: "agy",
+    run: vi.fn(),
+    resume: vi.fn(),
+  },
+}));
 
 vi.mock("../../pi-toolkit-lib/unified-subagents/backends/pi.js", () => ({
   piBackend: {
@@ -64,6 +73,7 @@ describe("AgentManager backend seam", () => {
     expect(getBackend("pi")).toBe(piBackend);
     expect(getBackend("claude")).toBe(claudeBackend);
     expect(getBackend("codex")).toBe(codexBackend);
+    expect(getBackend("agy")).toBe(agyBackend);
   });
 
   it("routes new runs through the default Pi backend", async () => {

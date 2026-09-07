@@ -59,8 +59,8 @@ interface ResolveHarnessInvocationInput {
 /** Normalize a native-backend model ID without consulting Pi's model registry. */
 function resolveNativeModelHint(
   input: string | undefined,
-  harness: "Claude" | "Codex",
-  provider: "anthropic" | "openai",
+  harness: "Claude" | "Codex" | "Agy",
+  provider: "anthropic" | "openai" | "agy",
 ): string | undefined {
   if (!input) return undefined;
   const slash = input.indexOf("/");
@@ -80,6 +80,10 @@ export function resolveClaudeModelHint(input?: string): string | undefined {
 
 export function resolveCodexModelHint(input?: string): string | undefined {
   return resolveNativeModelHint(input, "Codex", "openai");
+}
+
+export function resolveAgyModelHint(input?: string): string | undefined {
+  return resolveNativeModelHint(input, "Agy", "agy");
 }
 
 /**
@@ -114,7 +118,7 @@ export function resolveHarnessInvocation({
     isolation: params.isolation,
   }, { worktreeAllowed, defaultRunInBackground });
   const harness = resumeHarness ?? resolved.harness;
-  const nativeName = harness === "claude" ? "Claude" : "Codex ACP";
+  const nativeName = harness === "claude" ? "Claude" : harness === "codex" ? "Codex ACP" : "Agy";
 
   if (harness !== "pi") {
     if (operation === "schedule") throw new Error(`${nativeName} harness does not support schedule.`);
@@ -124,11 +128,14 @@ export function resolveHarnessInvocation({
     if (harness === "claude" && resolved.isolation) {
       throw new Error("Claude harness v1 does not support worktree isolation.");
     }
-    if (harness === "codex" && resolved.maxTurns !== undefined) {
-      throw new Error("Codex ACP harness does not support max turns.");
+    if ((harness === "codex" || harness === "agy") && resolved.maxTurns !== undefined) {
+      throw new Error(`${nativeName} harness does not support max turns.`);
     }
     if (harness === "codex" && (String(resolved.thinking) === "off" || resolved.thinking === "minimal")) {
       throw new Error("Codex ACP thinking supports low, medium, high, xhigh, or max.");
+    }
+    if (harness === "agy" && resolved.thinking !== undefined && !["low", "medium", "high"].includes(resolved.thinking)) {
+      throw new Error("Agy thinking supports low, medium, or high.");
     }
     if (!ctx.isProjectTrusted()) {
       throw new Error(`${nativeName} harness requires the current working directory to be trusted. Use /trust, then retry.`);
@@ -166,12 +173,14 @@ export function resolveHarnessInvocation({
     }
     modelHint = harness === "claude"
       ? resolveClaudeModelHint(resolved.modelInput)
-      : resolveCodexModelHint(resolved.modelInput);
+      : harness === "codex"
+        ? resolveCodexModelHint(resolved.modelInput)
+        : resolveAgyModelHint(resolved.modelInput);
   }
 
   const described = harness === "pi" && model
     ? describeModel(model)
-    : { modelName: modelHint, modelId: modelHint ? `${harness === "claude" ? "anthropic" : "openai"}/${modelHint}` : undefined };
+    : { modelName: modelHint, modelId: modelHint ? `${harness === "claude" ? "anthropic" : harness === "codex" ? "openai" : "agy"}/${modelHint}` : undefined };
   const askedModel = ((asked: string | undefined) => {
     if (!asked || harness !== "pi") return asked;
     const requested = resolveModel(asked, ctx.modelRegistry);
@@ -183,7 +192,7 @@ export function resolveHarnessInvocation({
     model,
     modelHint,
     trusted: harness === "pi" ? undefined : true,
-    maxTurns: harness === "codex" ? undefined : resolved.maxTurns,
+    maxTurns: harness === "codex" || harness === "agy" ? undefined : resolved.maxTurns,
     thinking: resolved.thinking,
     inheritContext: resolved.inheritContext,
     runInBackground: resolved.runInBackground,

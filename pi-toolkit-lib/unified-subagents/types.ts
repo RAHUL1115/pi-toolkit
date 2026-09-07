@@ -12,7 +12,7 @@ export type { ThinkingLevel };
 export type SubagentType = string;
 
 /** Execution harnesses supported by this fork; extend this one manifest for a new adapter. */
-export const AGENT_HARNESSES = ["pi", "claude", "codex"] as const;
+export const AGENT_HARNESSES = ["pi", "claude", "codex", "agy"] as const;
 export type AgentHarness = (typeof AGENT_HARNESSES)[number];
 
 export function isAgentHarness(value: unknown): value is AgentHarness {

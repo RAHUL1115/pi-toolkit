@@ -2,7 +2,7 @@
 
 ## Goal
 
-Keep `tintinweb/pi-subagents` easy to merge while this fork adds Claude Code and Codex. Upstream-owned orchestration should know as little as possible about native harness policy.
+Keep `tintinweb/pi-subagents` easy to merge while this fork adds Claude Code, Codex, and Antigravity CLI. Upstream-owned orchestration should know as little as possible about native harness policy.
 
 ## Deep modules
 
@@ -18,7 +18,7 @@ Agent tool / RPC
   -> resolveHarnessInvocation()
   -> AgentManager
   -> getBackend()
-  -> Pi / Claude / Codex adapter
+  -> Pi / Claude / Codex / Agy adapter
   -> shared SubagentSession + BackendRunResult
 ```
 
@@ -48,7 +48,7 @@ After every sync, verify:
 npm run lint
 npm run typecheck
 npm run build
-npx vitest run test/harness-resolution.test.ts test/harness-routing.test.ts test/backend.test.ts test/codex-backend.test.ts test/claude-backend.test.ts
+npx vitest run test/harness-resolution.test.ts test/harness-routing.test.ts test/backend.test.ts test/codex-backend.test.ts test/claude-backend.test.ts test/agy-backend.test.ts
 npm test
 ```
 

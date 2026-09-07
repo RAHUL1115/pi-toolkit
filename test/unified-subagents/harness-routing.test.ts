@@ -9,6 +9,14 @@ vi.mock("../../pi-toolkit-lib/unified-subagents/agent-runner.js", async () => {
   return { ...actual, runAgent: vi.fn() };
 });
 
+vi.mock("../../pi-toolkit-lib/unified-subagents/backends/agy.js", () => ({
+  agyBackend: {
+    harness: "agy",
+    run: vi.fn(),
+    resume: vi.fn(),
+  },
+}));
+
 vi.mock("../../pi-toolkit-lib/unified-subagents/backends/claude.js", () => ({
   claudeBackend: {
     harness: "claude",
@@ -27,9 +35,10 @@ vi.mock("../../pi-toolkit-lib/unified-subagents/backends/codex.js", () => ({
 
 import { runAgent } from "../../pi-toolkit-lib/unified-subagents/agent-runner.js";
 import type { SubagentSession } from "../../pi-toolkit-lib/unified-subagents/backend.js";
+import { agyBackend } from "../../pi-toolkit-lib/unified-subagents/backends/agy.js";
 import { claudeBackend } from "../../pi-toolkit-lib/unified-subagents/backends/claude.js";
 import { codexBackend } from "../../pi-toolkit-lib/unified-subagents/backends/codex.js";
-import { resolveClaudeModelHint, resolveCodexModelHint } from "../../pi-toolkit-lib/unified-subagents/harness-resolution.js";
+import { resolveAgyModelHint, resolveClaudeModelHint, resolveCodexModelHint } from "../../pi-toolkit-lib/unified-subagents/harness-resolution.js";
 import { getLightModelChoices, registerUnifiedSubagents as subagentsExtension } from "../../pi-toolkit-lib/unified-subagents/index.js";
 
 function session(): SubagentSession {
@@ -143,6 +152,13 @@ describe("Agent tool harness routing", () => {
       options.onSessionCreated?.(created);
       return { responseText: "pi done", session: created, aborted: false, steered: false };
     });
+    vi.mocked(agyBackend.run).mockImplementation(async (_ctx, _type, _prompt, options) => {
+      const created = session();
+      options.onSessionCreated?.(created);
+      options.onTextDelta?.("agy done", "agy done");
+      options.onTurnEnd?.(1);
+      return { responseText: "agy done", session: created, aborted: false, steered: false };
+    });
     vi.mocked(claudeBackend.run).mockImplementation(async (_ctx, _type, _prompt, options) => {
       const created = session();
       options.onSessionCreated?.(created);
@@ -176,7 +192,7 @@ describe("Agent tool harness routing", () => {
     subagentsExtension(pi as unknown as ExtensionAPI);
     const agent = tools.get("Agent");
 
-    expect(agent.parameters.properties.harness.anyOf.map(entry => entry.const)).toEqual(["pi", "claude", "codex"]);
+    expect(agent.parameters.properties.harness.anyOf.map(entry => entry.const)).toEqual(["pi", "claude", "codex", "agy"]);
     const result = await agent.execute(
       "tool-call",
       { prompt: "work", description: "Do work", subagent_type: "general-purpose", run_in_background: false },
@@ -363,6 +379,46 @@ describe("Agent tool harness routing", () => {
     );
     expect(runAgent).not.toHaveBeenCalled();
     expect(claudeBackend.run).not.toHaveBeenCalled();
+    await lifecycle.get("session_shutdown")?.({}, makeCtx(cwd));
+  });
+
+  it("routes Agy through stream-json with native model and effort controls", async () => {
+    const { pi, tools, lifecycle } = makePi();
+    subagentsExtension(pi as unknown as ExtensionAPI);
+    const agent = tools.get("Agent");
+
+    const result = await agent.execute(
+      "agy",
+      {
+        prompt: "native Antigravity work",
+        description: "Run Agy work",
+        subagent_type: "general-purpose",
+        harness: "agy",
+        model: "agy/gemini-3-flash",
+        thinking: "medium",
+        run_in_background: false,
+      },
+      undefined,
+      undefined,
+      makeCtx(cwd),
+    );
+
+    expect(textOf(result)).toContain("agy done");
+    expect(agyBackend.run).toHaveBeenCalledWith(
+      expect.anything(),
+      "general-purpose",
+      "native Antigravity work",
+      expect.objectContaining({
+        model: undefined,
+        modelHint: "gemini-3-flash",
+        thinkingLevel: "medium",
+        trusted: true,
+        maxTurns: undefined,
+      }),
+    );
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(claudeBackend.run).not.toHaveBeenCalled();
+    expect(codexBackend.run).not.toHaveBeenCalled();
     await lifecycle.get("session_shutdown")?.({}, makeCtx(cwd));
   });
 
@@ -640,5 +696,9 @@ Use the configured prompt.`);
     expect(resolveCodexModelHint("gpt-5.4")).toBe("gpt-5.4");
     expect(resolveCodexModelHint("openai/gpt-5.4")).toBe("gpt-5.4");
     expect(() => resolveCodexModelHint("anthropic/claude")).toThrow("only accepts native model IDs");
+    expect(resolveAgyModelHint()).toBeUndefined();
+    expect(resolveAgyModelHint("gemini-3-flash")).toBe("gemini-3-flash");
+    expect(resolveAgyModelHint("agy/gemini-3-flash")).toBe("gemini-3-flash");
+    expect(() => resolveAgyModelHint("google/gemini")).toThrow("only accepts native model IDs");
   });
 });

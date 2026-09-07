@@ -2,9 +2,9 @@
 
 > Consolidation note: this is the imported guide for snapshot `4b581fa99dc13f1a4295f2935cdf0205a0ab9443`. The extension now ships inside Pi Toolkit through the toolkit's sole `./index.ts` entrypoint; standalone install commands below are retained only as source documentation.
 
-A standalone local [pi](https://pi.dev) extension that runs autonomous sub-agents through **pi, Claude Code, or OpenAI Codex** behind one `Agent` tool and one shared UI. Spawn specialized agents with their own tools, system prompt, model, and thinking level; they run in the background by default, can block when requested, support mid-run steering and resume, and include custom agent types.
+A standalone local [pi](https://pi.dev) extension that runs autonomous sub-agents through **pi, Claude Code, OpenAI Codex, or Antigravity CLI** behind one `Agent` tool and one shared UI. Spawn specialized agents with their own tools, system prompt, model, and thinking level; they run in the background by default, can block when requested, support mid-run steering and resume, and include custom agent types.
 
-This extension has its own `pi-unified-subagents@0.1.0` package identity. It is derived from [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) and tracks upstream through v0.18.0, under the MIT license, with a backend seam, Claude Agent SDK adapter, and Codex ACP adapter. It intentionally retains the established `Agent` tool names, `subagents:*` event/RPC channels, `.pi/subagents.json` settings, and transcript paths for compatibility. Do not enable it simultaneously with upstream `@tintinweb/pi-subagents`: both register the same tools and UI.
+This extension has its own `pi-unified-subagents@0.1.0` package identity. It is derived from [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) and tracks upstream through v0.18.0, under the MIT license, with a backend seam, Claude Agent SDK adapter, Codex ACP adapter, and Antigravity stream-JSON adapter. It intentionally retains the established `Agent` tool names, `subagents:*` event/RPC channels, `.pi/subagents.json` settings, and transcript paths for compatibility. Do not enable it simultaneously with upstream `@tintinweb/pi-subagents`: both register the same tools and UI.
 
 <img width="600" alt="unified subagents screenshot" src="media/screenshot.png" />
 
@@ -17,7 +17,7 @@ https://github.com/user-attachments/assets/8685261b-9338-4fea-8dfe-1c590d5df543
 ## Features
 
 - **Claude Code look & feel** — same tool names, calling conventions, and UI patterns (`Agent`, `get_subagent_result`, `steer_subagent`) — feels native
-- **Unified pi + native harnesses** — pass `harness: "claude"` for the locally authenticated Claude Agent SDK or `harness: "codex"` for Codex through the `@agentclientprotocol/codex-acp` translation adapter; omitted stays on pi. All harnesses share foreground/background execution, concurrency, FleetView, the conversation viewer, steering, stopping, usage display, and result delivery
+- **Unified pi + native harnesses** — pass `harness: "claude"` for the locally authenticated Claude Agent SDK, `harness: "codex"` for Codex through the `@agentclientprotocol/codex-acp` translation adapter, or `harness: "agy"` for Antigravity CLI; omitted stays on pi. All harnesses share foreground/background execution, concurrency, FleetView, the conversation viewer, steering, stopping, usage display, and result delivery
 - **Parallel background agents** — spawn multiple agents that run concurrently with automatic queuing (configurable concurrency limit, default 10) and smart group join (consolidated notifications)
 - **Single activity UI** — FleetView is the only live progress surface while enabled, avoiding duplicate above-editor status
 - **FleetView** — tabbed running Tasks and Agents lists below the editor; agent rows include status, tool uses, token/context usage, elapsed time, and current activity, while task rows open the existing `/tasks` detail view
@@ -63,7 +63,7 @@ Agent({
   subagent_type: "general-purpose",
   prompt: "Inspect the authentication implementation and summarize it",
   description: "Inspect authentication",
-  harness: "codex", // or "claude"; omit to use pi
+  harness: "codex", // or "claude" / "agy"; omit to use pi
   run_in_background: true,
 })
 ```
@@ -287,7 +287,7 @@ All fields are optional — sensible defaults for everything.
 |-------|---------|-------------|
 | `description` | filename | Agent description shown in tool listings |
 | `name` | filename | **The agent's type** — what `subagent_type` and `@handle` address. The filename need not match; values containing `:` are skipped because Claude Code reserves them for plugin scope |
-| `harness` | `pi` | Execution backend: `pi`, `claude`, or `codex` |
+| `harness` | `pi` | Execution backend: `pi`, `claude`, `codex`, or `agy` |
 | `display_name` | the type | Cosmetic UI label, independent of `name` |
 | `color` | — | Claude Code-compatible named, hex, or Agency Agents badge color |
 | `tools` | all 7 | Which tools the agent can call. Built-in names (`read, grep, …`), `*` / `all` (all built-ins), `none`, and `ext:<extension>` / `ext:<extension>/<tool>` selectors for extension tools. See [Tool & extension scoping](#tool--extension-scoping) below |
@@ -297,7 +297,7 @@ All fields are optional — sensible defaults for everything.
 | `memory` | — | Persistent agent memory scope: `project`, `local`, or `user`. Auto-detects read-only agents |
 | `disallowed_tools` | — | Comma-separated tools to deny even if extensions provide them |
 | `isolation` | — | `worktree` creates an isolated worktree; `off` vetoes a caller's worktree request. `none`, `no`, and `false` also mean `off` |
-| `model` | pi: inherit parent; native harness: configured default | Pi resolves registry names tolerantly. Claude accepts native IDs/aliases or `anthropic/`; Codex accepts native IDs or `openai/`. Native harnesses do not inherit the parent Pi model |
+| `model` | pi: inherit parent; native harness: configured default | Pi resolves registry names tolerantly. Claude accepts native IDs/aliases or `anthropic/`; Codex accepts native IDs or `openai/`; Agy accepts native IDs or `agy/`. Native harnesses do not inherit the parent Pi model |
 | `thinking` | harness default | off, minimal, low, medium, high, xhigh, max; Pi clamps unsupported levels and native harnesses map supported values to their own controls |
 | `max_turns` | unlimited | Max agentic turns before graceful shutdown. `0` or omit for unlimited |
 | `persist_session` | `subagents.json` `rememberAgents` (default `true`) | Persist this subagent as a normal pi session instead of keeping the session in memory only; overrides the `rememberAgents` project default in both directions. It records its spawning session as parent, so it nests under it in `/resume`. The subagent's `.output` transcript is still written either way unless `output_transcript: false` |
@@ -397,7 +397,7 @@ Launch a sub-agent.
 | `description` | string | yes | Short 3-5 word summary (shown in UI) |
 | `name` | string | no | Memorable name for this agent (`auth-audit`), addressable as `@name` and accepted by `steer_subagent`/`get_subagent_result`. Additive — the type-derived handle is still assigned |
 | `subagent_type` | string | yes | Agent type (built-in or custom) |
-| `harness` | `"pi" \| "claude" \| "codex"` | no | Execution backend; defaults to `pi`. Custom-agent frontmatter overrides it |
+| `harness` | `"pi" \| "claude" \| "codex" \| "agy"` | no | Execution backend; defaults to `pi`. Custom-agent frontmatter overrides it |
 | `model` | string | no | Model — `provider/modelId` or fuzzy name (`"haiku"`, `"sonnet"`). Resolved tolerantly (`.`/`-` and a trailing date stamp interchangeable) with provider fallback |
 | `thinking` | string | no | Thinking level: off, minimal, low, medium, high, xhigh, max (availability depends on pi version and model) |
 | `max_turns` | number | no | Max agentic turns. Omit for unlimited (default) |
@@ -449,6 +449,23 @@ harness: codex
 model: openai/gpt-5.4
 thinking: high
 isolation: worktree
+---
+```
+
+#### Antigravity CLI harness
+
+`harness: "agy"` launches the locally installed Antigravity CLI in bidirectional `stream-json` mode. The adapter maps incremental response text, native tool activity/results, token usage, stopping, and terminal status into the shared session surface. Steering writes another user event to the same live Agy conversation, so the existing viewer, `steer_subagent`, FleetView, queue, result delivery, and completion notifications work unchanged.
+
+Agy runs only in trusted projects and uses `--dangerously-skip-permissions`. Native model IDs may optionally use the `agy/` prefix; thinking accepts `low`, `medium`, or `high`. A read-only Pi tool profile maps to Agy `plan` mode; the full profile uses Agy's normal edit-capable mode. Worktree isolation is supported by launching Agy in the prepared worktree.
+
+Current boundaries are explicit: `schedule`, `resume`, `inherit_context`, `isolated`, `max_turns`, tracked nested delegation, Pi extensions/MCP selections, Pi skills, memory, and Pi session persistence are unsupported. Agy must be installed and authenticated separately; the adapter searches the standard Windows install and then `agy`/`antigravity` on `PATH`.
+
+```yaml
+---
+description: Antigravity implementation agent
+harness: agy
+model: agy/gemini-3-flash
+thinking: high
 ---
 ```
 
@@ -871,6 +888,7 @@ src/
   backends/pi.ts       # Pi session adapter
   backends/claude.ts   # Claude Agent SDK adapter and normalization
   backends/codex.ts    # Codex ACP adapter and normalization
+  backends/agy.ts      # Antigravity stream-JSON adapter and normalization
   agent-runner.ts      # Pi session execution, graceful max_turns, steer/resume
   agent-manager.ts     # Harness-neutral lifecycle, queue, notifications
   nested-tools.ts      # Ownership-scoped nested delegation tools

@@ -1,5 +1,6 @@
 import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { agyBackend } from "./backends/agy.js";
 import { claudeBackend } from "./backends/claude.js";
 import { codexBackend } from "./backends/codex.js";
 import { piBackend } from "./backends/pi.js";
@@ -106,6 +107,7 @@ const BACKENDS: Readonly<Record<AgentHarness, SubagentBackend>> = {
   pi: piBackend,
   claude: claudeBackend,
   codex: codexBackend,
+  agy: agyBackend,
 };
 
 export function getBackend(harness: AgentHarness = "pi"): SubagentBackend {

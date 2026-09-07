@@ -647,7 +647,9 @@ export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTas
     });
     for (const warning of resolved.warnings) ctxRef.ui.notify(warning, "warning");
     const { state, callbacks } = createActivityTracker(
-      resolved.harness === "codex" ? undefined : normalizeMaxTurns(resolved.maxTurns ?? getDefaultMaxTurns()),
+      resolved.harness === "codex" || resolved.harness === "agy"
+        ? undefined
+        : normalizeMaxTurns(resolved.maxTurns ?? getDefaultMaxTurns()),
     );
     const id = manager.spawn(piRef, ctxRef, dispatch.type, prompt, {
       ...options,
@@ -658,7 +660,9 @@ export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTas
       modelHint: resolved.modelHint,
       trusted: resolved.trusted,
       agentConfig: config,
-      maxTurns: resolved.harness === "codex" ? undefined : normalizeMaxTurns(resolved.maxTurns ?? getDefaultMaxTurns()),
+      maxTurns: resolved.harness === "codex" || resolved.harness === "agy"
+        ? undefined
+        : normalizeMaxTurns(resolved.maxTurns ?? getDefaultMaxTurns()),
       isolated: resolved.isolated,
       inheritContext: resolved.inheritContext,
       thinkingLevel: resolved.thinking,
@@ -1374,7 +1378,7 @@ export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTas
 
   const lightModelGuidance =
     `Light is the fast, low-cost model for straightforward, low-intelligence tasks. Choose the agent type by task nature: use Explore for read-only search and general-purpose for implementation. ` +
-    `Use thinking: "${getLightThinking()}". For Pi use model: "${getLightModel()}"; for Claude use model: "sonnet"; for Codex use model: "gpt-5.6-sol". Use a stronger model for difficult, open-ended, or high-risk work.`;
+    `Use thinking: "${getLightThinking()}". For Pi use model: "${getLightModel()}"; for Claude use model: "sonnet"; for Codex use model: "gpt-5.6-sol". Agy uses its configured default unless a native model ID is supplied. Use a stronger model for difficult, open-ended, or high-risk work.`;
 
   // Schedule param + its guideline are gated on `schedulingEnabled` (read once
   // at registration; flipping the setting later requires next pi session for
@@ -1531,7 +1535,7 @@ Terse command-style prompts produce shallow, generic work.
       "Use Agent with specialized agents when the task matches an agent type's description. Subagents are valuable for parallelizing independent queries or for protecting the main context window from excessive results, but should not be used excessively when not needed. Importantly, avoid duplicating work that subagents are already doing — if you delegate research to a subagent, do not also perform the same searches yourself.",
       "For broad codebase exploration or research, spawn Agent with an appropriate subagent_type (e.g. Explore). Otherwise use direct tools (read, grep, find) when the target is already known.",
       lightModelGuidance,
-      'Use harness: "claude" for Claude Code or "codex" for OpenAI Codex; omitted defaults to Pi. Custom-agent harness frontmatter overrides the tool parameter. Native harness models accept native IDs or their provider prefix (anthropic/ or openai/).',
+      'Use harness: "claude" for Claude Code, "codex" for OpenAI Codex, or "agy" for Antigravity CLI; omitted defaults to Pi. Custom-agent harness frontmatter overrides the tool parameter. Native harness models accept native IDs or their provider prefix (anthropic/, openai/, or agy/).',
       "When an agent runs in the background, you will be notified on completion — do not poll or sleep waiting for it. Continue with other work instead.",
       "Trust but verify: an agent's summary describes intent, not outcome. When an agent writes or edits code, check the actual changes before reporting work as done.",
     ],
@@ -1795,7 +1799,7 @@ Terse command-style prompts produce shallow, generic work.
       };
 
       const modelName = resolvedHarness.invocation.modelName;
-      const effectiveMaxTurns = harness === "codex"
+      const effectiveMaxTurns = harness === "codex" || harness === "agy"
         ? undefined
         : normalizeMaxTurns(resolvedHarness.maxTurns ?? getDefaultMaxTurns());
       const agentInvocation: AgentInvocation = {
@@ -2401,9 +2405,9 @@ Terse command-style prompts produce shallow, generic work.
 
   function getModelLabel(type: string, registry?: ModelRegistry): string {
     const cfg = getAgentConfig(type);
-    if (!cfg?.model) return cfg?.harness === "claude" || cfg?.harness === "codex" ? "default" : "inherit";
+    if (!cfg?.model) return cfg?.harness === "claude" || cfg?.harness === "codex" || cfg?.harness === "agy" ? "default" : "inherit";
     const label = getModelLabelFromConfig(cfg.model);
-    if (cfg.harness === "claude" || cfg.harness === "codex" || !registry) return label;
+    if (cfg.harness === "claude" || cfg.harness === "codex" || cfg.harness === "agy" || !registry) return label;
     const resolved = resolveModel(cfg.model, registry);
     // Configured but unresolvable: the runtime silently falls back to the parent
     // model, so flag it (and the fallback) rather than hiding the config.
@@ -2797,10 +2801,10 @@ The file format is a markdown file with YAML frontmatter and a system prompt bod
 \`\`\`markdown
 ---
 description: <one-line description shown in UI>
-harness: <optional "pi" (default), "claude", or "codex">
+harness: <optional "pi" (default), "claude", "codex", or "agy">
 color: <optional agent name badge color: red, blue, green, yellow, purple, orange, pink, cyan, an Agency Agents alias, or quoted "#RRGGBB">
 tools: <comma-separated built-in tools: read, bash, edit, write, grep, find, ls. Use "none" for no tools. Omit for all tools>
-model: <optional model as "provider/modelId", e.g. "anthropic/claude-haiku-4-5" or "openai/gpt-5.4". Omit for the harness default (Pi inherits parent; native harnesses use their configured default)>
+model: <optional model as "provider/modelId", e.g. "anthropic/claude-haiku-4-5", "openai/gpt-5.4", or "agy/gemini-3-flash". Omit for the harness default (Pi inherits parent; native harnesses use their configured default)>
 thinking: <optional thinking level: ${THINKING_LEVELS.join(", ")}. Omit to inherit>
 max_turns: <optional max agentic turns. 0 or omit for unlimited (default)>
 prompt_mode: <"replace" (body IS the full system prompt) or "append" (body is appended to default prompt). Default: replace>
@@ -2826,7 +2830,7 @@ memory: <"user" (global), "project" (per-project), or "local" (gitignored per-pr
 \`\`\`
 
 Guidelines for choosing settings:
-- Use harness: claude for Claude Code or harness: codex for OpenAI Codex through ACP; omit for Pi
+- Use harness: claude for Claude Code, harness: codex for OpenAI Codex through ACP, or harness: agy for Antigravity CLI; omit for Pi
 - For read-only tasks (review, analysis): tools: read, bash, grep, find, ls
 - For code modification tasks: include edit, write
 - Use prompt_mode: append if the agent should keep the default system prompt and add specialization on top
@@ -2889,7 +2893,9 @@ Write the file using the write tool. Only write the file, nothing else.`;
     // 5. Model
     const modelOptions = harnessChoice === "codex"
       ? ["default (Codex configured default)", "custom..."]
-      : ["default (Pi inherits parent; Claude Code default)", "haiku", "sonnet", "opus", "custom..."];
+      : harnessChoice === "agy"
+        ? ["default (Agy configured default)", "custom..."]
+        : ["default (Pi inherits parent; Claude Code default)", "haiku", "sonnet", "opus", "custom..."];
     const modelChoice = await ctx.ui.select("Model", modelOptions);
     if (!modelChoice) return;
 
@@ -2905,7 +2911,9 @@ Write the file using the write tool. Only write the file, nothing else.`;
     // "inherit" is a UI-only pseudo-choice (omit the field); the rest mirror the harness.
     const thinkingOptions = harnessChoice === "codex"
       ? ["inherit", "low", "medium", "high", "xhigh", "max"]
-      : ["inherit", ...THINKING_LEVELS];
+      : harnessChoice === "agy"
+        ? ["inherit", "low", "medium", "high"]
+        : ["inherit", ...THINKING_LEVELS];
     const thinkingChoice = await ctx.ui.select("Thinking level", thinkingOptions);
     if (!thinkingChoice) return;
 

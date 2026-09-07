@@ -65,6 +65,26 @@ describe("harness resolution seam", () => {
     expect(context.modelRegistry.find).not.toHaveBeenCalled();
   });
 
+  it("routes Agy model and effort without consulting Pi's registry", () => {
+    const context = ctx();
+    const result = resolveHarnessInvocation({
+      ctx: context,
+      params: { harness: "agy", model: "agy/gemini-3-flash", thinking: "medium" },
+      agentLabel: "Agy worker",
+    });
+
+    expect(result).toMatchObject({
+      harness: "agy",
+      model: undefined,
+      modelHint: "gemini-3-flash",
+      trusted: true,
+      maxTurns: undefined,
+      thinking: "medium",
+      invocation: { harness: "agy", modelId: "agy/gemini-3-flash" },
+    });
+    expect(context.modelRegistry.find).not.toHaveBeenCalled();
+  });
+
   it("rejects unsupported native operations and forged values", () => {
     expect(() => resolveHarnessInvocation({
       ctx: ctx(), params: { harness: "codex" }, operation: "schedule", agentLabel: "worker",
@@ -75,6 +95,12 @@ describe("harness resolution seam", () => {
     expect(() => resolveHarnessInvocation({
       ctx: ctx(), params: { harness: "codex", model: piModel }, agentLabel: "worker",
     })).toThrow("native model ID string");
+    expect(() => resolveHarnessInvocation({
+      ctx: ctx(), params: { harness: "agy", thinking: "xhigh" }, agentLabel: "worker",
+    })).toThrow("low, medium, or high");
+    expect(() => resolveHarnessInvocation({
+      ctx: ctx(), params: { harness: "agy", maxTurns: 2 }, agentLabel: "worker",
+    })).toThrow("does not support max turns");
     expect(() => resolveHarnessInvocation({
       ctx: ctx(), params: { harness: "unknown" }, agentLabel: "worker",
     })).toThrow("Unknown subagent harness");

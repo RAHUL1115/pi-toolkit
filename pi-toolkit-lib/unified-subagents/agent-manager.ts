@@ -1,7 +1,7 @@
 /**
  * agent-manager.ts — Tracks agents, background execution, resume support.
  *
- * Background agents are subject to a configurable concurrency limit (default: 4).
+ * Background agents are subject to a configurable concurrency limit (default: 10).
  * Excess agents are queued and auto-started as running agents complete.
  * Foreground agents bypass the queue while blocking the parent. If moved to the
  * background mid-run, they join pool accounting without restarting or queueing.
@@ -34,14 +34,12 @@ export type CompactionInfo = BackendCompactionInfo;
 /**
  * Default max concurrent background agents.
  *
- * Raised from 4 when top-level spawns started defaulting to background
- * (`backgroundByDefault`): foreground agents bypass this pool entirely, so
- * while foreground was the default a fan-out of six ran six. With background
- * as the default every top-level agent takes a slot, and a limit of 4 would
- * have silently queued the tail of exactly the parallel fan-outs the `Agent`
- * tool description tells the model to send.
+ * Kept at 10 so explicit immediate-background fan-outs have enough room. Runs
+ * that begin foreground join this pool only when manually or automatically
+ * detached.
  */
 const DEFAULT_MAX_CONCURRENT = 10;
+export const DEFAULT_AUTO_BACKGROUND_MS = 300_000;
 
 /**
  * How many evicted agents stay addressable by name. Only a bound on memory —
@@ -669,6 +667,7 @@ export class AgentManager {
     prompt: string,
     options: Omit<SpawnOptions, "isBackground">,
     onSpawned?: (id: string) => void,
+    autoBackgroundAfterMs?: number,
   ): Promise<{ id: string; record: AgentRecord }> {
     // Temporarily register the onSpawned hook so startAgent can call it.
     const prevOnSpawned = this.onSpawned;
@@ -686,9 +685,14 @@ export class AgentManager {
     let releaseForeground!: () => void;
     const backgrounded = new Promise<void>((resolve) => { releaseForeground = resolve; });
     this.foregroundWaiters.set(id, releaseForeground);
+    const autoBackgroundTimer = autoBackgroundAfterMs == null
+      ? undefined
+      : setTimeout(() => this.backgroundForeground(id), autoBackgroundAfterMs);
+    autoBackgroundTimer?.unref();
     try {
       await Promise.race([record.promise!, backgrounded]);
     } finally {
+      if (autoBackgroundTimer) clearTimeout(autoBackgroundTimer);
       this.foregroundWaiters.delete(id);
     }
     return { id, record };

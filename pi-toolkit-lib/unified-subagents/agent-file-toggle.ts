@@ -252,9 +252,9 @@ export function serializeAgentFile(cfg: AgentConfig): string {
   else if (Array.isArray(cfg.skills)) fmFields.push(`skills: ${cfg.skills.join(", ")}`);
   if (cfg.disallowedTools?.length) fmFields.push(`disallowed_tools: ${cfg.disallowedTools.join(", ")}`);
   if (cfg.inheritContext) fmFields.push("inherit_context: true");
-  // Both cases, not just `true`: with `backgroundByDefault` on, omitting the
-  // field means background, so `false` is the only way to pin an agent file to
-  // foreground and is no longer interchangeable with absence. No caller can
+  // Both cases, not just `true`: with automatic backgrounding on, omitting the
+  // field means foreground only until the five-minute boundary, so `false` is
+  // the only way to pin an agent file to foreground indefinitely. No caller can
   // reach it yet — Eject only handles built-in defaults, which omit the field —
   // so this keeps the writer symmetric with the loader, nothing more.
   if (cfg.runInBackground !== undefined) fmFields.push(`run_in_background: ${cfg.runInBackground}`);

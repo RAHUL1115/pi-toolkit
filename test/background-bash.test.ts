@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BackgroundBashManager, registerBackgroundBash } from "../pi-toolkit-lib/background-bash.ts";
 import { BackgroundTaskViewer, type BackgroundTaskController, type BackgroundTaskItem } from "../pi-toolkit-lib/background-task-viewer.ts";
-import { builtinRenderers } from "../pi-toolkit-lib/lib/footer-engine/segments.ts";
+import { backgroundStatus } from "../pi-toolkit-lib/footer.ts";
 
 function harness(autoBackgroundMs = 60_000) {
 	const tools = new Map<string, any>();
@@ -147,9 +147,8 @@ describe("background bash", () => {
 	});
 
 	it("shows only running background tasks in the footer", () => {
-		const theme = { fg: (_color: string, text: string) => text };
-		expect(builtinRenderers.backgroundShells!({ backgroundShells: 2, theme } as any)).toBe("bg tasks:2");
-		expect(builtinRenderers.backgroundShells!({ backgroundShells: 0, theme } as any)).toBe("");
+		expect(backgroundStatus(2)).toBe("bg tasks:2");
+		expect(backgroundStatus(0)).toBe("");
 	});
 
 	it("uses sanitized titles and command fallbacks and sanitizes preview output", () => {

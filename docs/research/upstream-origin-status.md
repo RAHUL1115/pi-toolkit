@@ -1,5 +1,7 @@
 # Upstream origin status
 
+> Historical audit: the observability implementation and its settings/storage/footer-engine subtrees were subsequently removed in favor of local `footer.ts` and `usage.ts` modules. The findings and reproduction commands below describe the earlier source tree, not the current replacement. See [current provenance](../../PROVENANCE.md).
+
 _Status checked 2026-08-12 against fresh clones and GitHub/npm metadata. “After baseline” means the exclusive Git range `baseline..origin/main`._
 
 ## Executive result

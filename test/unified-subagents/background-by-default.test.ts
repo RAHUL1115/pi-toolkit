@@ -6,16 +6,12 @@
  * this pins what the orchestrator actually receives back from a real `Agent`
  * call, which is the part the tool description makes promises about:
  *
- *   - an unqualified spawn hands back an ID instead of the agent's output,
+ *   - an unqualified spawn starts foreground and detaches at 300 seconds,
  *   - `run_in_background: false` still blocks and returns the output inline,
- *   - a fan-out sized like the ones the description tells the model to send
- *     runs concurrently instead of queueing behind `maxConcurrent`.
- *
- * That last one is the reason the concurrency default moved 4 → 10: foreground
- * agents bypass the pool, so the limit only started applying to ordinary
- * parallel work once background became the default.
+ *   - an explicit immediate-background fan-out still fits under the documented
+ *     default concurrency limit.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../pi-toolkit-lib/unified-subagents/agent-runner.js", async () => {
   const actual = await vi.importActual<typeof import("../../pi-toolkit-lib/unified-subagents/agent-runner.js")>("../../pi-toolkit-lib/unified-subagents/agent-runner.js");
@@ -73,17 +69,25 @@ function spawn(tools: Map<string, any>, params: Record<string, unknown> = {}) {
 }
 
 describe("backgroundByDefault", () => {
-  it("returns an agent ID, not the result, when the call doesn't specify", async () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("starts foreground and returns an agent ID only after 300 seconds", async () => {
+    vi.useFakeTimers();
     const { pi, tools } = makePi();
     subagentsExtension(pi);
-    settled("THE-PAYLOAD");
+    vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}) as any);
 
-    const out = textOf(await spawn(tools));
+    const call = spawn(tools);
+    let settledCall = false;
+    void call.then(() => { settledCall = true; });
 
+    await vi.advanceTimersByTimeAsync(299_999);
+    expect(settledCall).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const out = textOf(await call);
+    expect(out).toContain("Agent moved to background");
     expect(out).toContain("Agent ID:");
-    // The whole point of backgrounding: the orchestrator does NOT get the
-    // output here — it arrives later as a notification preview.
-    expect(out).not.toContain("THE-PAYLOAD");
   });
 
   it("still blocks and returns the output inline when run_in_background is false", async () => {
@@ -106,7 +110,7 @@ describe("backgroundByDefault", () => {
     vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}) as any);
 
     const outs: string[] = [];
-    for (let i = 0; i < 6; i++) outs.push(textOf(await spawn(tools)));
+    for (let i = 0; i < 6; i++) outs.push(textOf(await spawn(tools, { run_in_background: true })));
 
     expect(outs).toHaveLength(6);
     for (const out of outs) expect(out).not.toContain("queued");

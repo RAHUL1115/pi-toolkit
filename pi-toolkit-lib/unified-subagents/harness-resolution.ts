@@ -1,5 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { BULK_READER } from "./economy.js";
 import { resolveAgentInvocationConfig } from "./invocation-config.js";
 import { describeModel, resolveModel } from "./model-resolver.js";
 import { checkModelScope } from "./model-scope.js";
@@ -149,7 +150,7 @@ export function resolveHarnessInvocation({
     if (resolved.modelInput) {
       const candidate = resolveModel(resolved.modelInput, ctx.modelRegistry);
       if (typeof candidate === "string") {
-        if (resolved.modelFromParams) throw new Error(candidate);
+        if (resolved.modelFromParams || config?.name === BULK_READER) throw new Error(candidate);
       } else {
         model = candidate;
       }

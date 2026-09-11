@@ -7,6 +7,7 @@
 
 import { createCodingTools, createReadOnlyTools } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_AGENTS } from "./default-agents.js";
+import { BULK_READER, bulkReaderConfig } from "./economy.js";
 import type { AgentConfig } from "./types.js";
 
 /**
@@ -64,7 +65,10 @@ export function buildAgentRegistry(userAgents: Map<string, AgentConfig>): Map<st
   if (!disableDefaults) {
     for (const [name, config] of DEFAULT_AGENTS) registry.set(name, config);
   }
-  for (const [name, config] of userAgents) registry.set(name, config);
+  for (const [name, config] of userAgents) {
+    if (name.toLowerCase() !== BULK_READER) registry.set(name, config);
+  }
+  registry.set(BULK_READER, bulkReaderConfig);
   return registry;
 }
 

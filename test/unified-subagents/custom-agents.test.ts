@@ -1238,9 +1238,9 @@ Good body.`);
     });
 
     // The writer used to emit `run_in_background` only when truthy, so an
-    // explicit `false` was dropped. Harmless while foreground was the default
-    // and omission meant the same thing — but with `backgroundByDefault` on,
-    // dropping it flips the ejected agent to background.
+    // explicit `false` was dropped. That is no longer interchangeable with
+    // omission: omitted agents auto-detach after five minutes, while false pins
+    // them to foreground execution.
     it("preserves an explicit run_in_background: false instead of dropping it", () => {
       expect(roundTrip({ runInBackground: false }).runInBackground).toBe(false);
     });

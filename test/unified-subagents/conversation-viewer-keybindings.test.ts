@@ -130,6 +130,17 @@ describe("ConversationViewer custom keybindings", () => {
     expect(scrollOffset(viewer)).toBe(bottom);
   });
 
+  it("pages the internal transcript with shifted arrows", () => {
+    const viewer = createViewer(createEmacsKeybindings());
+    const bottom = scrollOffset(viewer);
+    const page = (viewer as any).viewportHeight();
+
+    viewer.handleInput(SHIFT_UP);
+    expect(scrollOffset(viewer)).toBe(bottom - page);
+    viewer.handleInput(SHIFT_DOWN);
+    expect(scrollOffset(viewer)).toBe(bottom);
+  });
+
   it("keeps arrows and k/j working alongside custom bindings", () => {
     const viewer = createViewer(createEmacsKeybindings());
     const bottom = scrollOffset(viewer);

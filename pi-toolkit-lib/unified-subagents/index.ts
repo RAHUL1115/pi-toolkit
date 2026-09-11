@@ -19,7 +19,7 @@ import type { BackgroundTaskController } from "../background-task-viewer.js";
 import { abortable } from "./abortable.js";
 import { hasAgentBadge, renderAgentName } from "./agent-color.js";
 import { buildNewAgentFile, disableInContent, enableInContent, isEmptyStub, locateAgentFile, personalAgentsDir, projectAgentsDir, serializeAgentFile } from "./agent-file-toggle.js";
-import { AgentManager } from "./agent-manager.js";
+import { AgentManager, DEFAULT_AUTO_BACKGROUND_MS } from "./agent-manager.js";
 import { getAgentConversation, getDefaultMaxTurns, getGraceTurns, getRememberAgents, normalizeMaxTurns, SUBAGENT_TOOL_NAMES, setDefaultMaxTurns, setGraceTurns, setRememberAgents, steerAgent } from "./agent-runner.js";
 import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, getConfig, getFallbackSubagent, isDefaultsDisabled, NO_FALLBACK, registerAgents, resolveSpawnType, resolveType, setDefaultsDisabled, setFallbackSubagent } from "./agent-types.js";
 import type { SubagentSession } from "./backend.js";
@@ -27,6 +27,7 @@ import { inChildSessionContext } from "./child-context.js";
 import { type RpcHandle, registerRpcHandlers } from "./cross-extension-rpc.js";
 import { loadCustomAgents } from "./custom-agents.js";
 import { GroupJoinManager } from "./group-join.js";
+import { BULK_READER, boundBulkResult, registerEconomy } from "./economy.js";
 import { type HarnessResolution, resolveHarnessInvocation } from "./harness-resolution.js";
 import { isolationParam, resolveJoinMode } from "./invocation-config.js";
 import { describeMention, handleBase, isReservedHandle, parseMention, resolveHandleToType, stripAgentPrefix } from "./mention.js";
@@ -84,6 +85,7 @@ import { isWorktreeIsolationEnabled, setWorktreeIsolationEnabled } from "./workt
 
 /** Tool execute return value for a text response. */
 function textResult(msg: string, details?: AgentDetails) {
+  if (details?.subagentType === BULK_READER) msg = boundBulkResult(msg);
   return { content: [{ type: "text" as const, text: msg }], details: details as any };
 }
 
@@ -206,7 +208,7 @@ function formatTaskNotification(record: AgentRecord, resultMaxLen: number, showC
       : record.result
     : "No output.";
 
-  return [
+  const text = [
     `<task-notification>`,
     `<task-id>${record.id}</task-id>`,
     record.toolCallId ? `<tool-use-id>${escapeXml(record.toolCallId)}</tool-use-id>` : null,
@@ -217,6 +219,7 @@ function formatTaskNotification(record: AgentRecord, resultMaxLen: number, showC
     `<usage><total_tokens>${totalTokens}</total_tokens><tool_uses>${record.toolUses}</tool_uses>${ctxXml}${compactXml}${costXml}<duration_ms>${durationMs}</duration_ms></usage>`,
     `</task-notification>`,
   ].filter(Boolean).join('\n');
+  return record.type === BULK_READER ? boundBulkResult(text) : text;
 }
 
 /** Build AgentDetails from a base + record-specific fields. */
@@ -314,6 +317,7 @@ export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTas
   // would create another manager and leak handlers. Nested orchestration is
   // injected as scoped custom tools by the existing manager instead.
   if (inChildSessionContext()) return;
+  const accountEconomyUsage = registerEconomy(pi);
 
   // ---- Register custom notification renderer ----
   pi.registerMessageRenderer<NotificationDetails>(
@@ -614,6 +618,7 @@ export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTas
       compactionCount: record.compactionCount,
     });
   }, (_record, usage) => {
+    if (_record.type === BULK_READER) accountEconomyUsage(usage);
     // Every assistant message from every agent — nested included, exactly once.
     // Parked here until a tool result can carry it back to the parent session;
     // see `PendingUsagePool`. Skipped entirely when the feature is off, so no
@@ -1129,9 +1134,9 @@ export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTas
   function getDefaultJoinMode(): JoinMode { return defaultJoinMode; }
   function setDefaultJoinMode(mode: JoinMode) { defaultJoinMode = mode; }
 
-  // What an unqualified top-level spawn means. Defaults to background,
-  // following Claude Code; `backgroundByDefault: false` restores the previous
-  // foreground default. Nested spawns ignore this — see nested-tools.ts.
+  // Whether an unqualified fresh Agent call automatically detaches after five
+  // minutes. Explicit true still backgrounds immediately; explicit false stays
+  // foreground indefinitely. Nested spawns ignore this — see nested-tools.ts.
   let backgroundByDefault = true;
   function getBackgroundByDefault(): boolean { return backgroundByDefault; }
   function setBackgroundByDefault(b: boolean) { backgroundByDefault = b; }
@@ -1428,7 +1433,7 @@ Custom agents: .pi/agents/<name>.md (project) or ${getAgentDir()}/agents/<name>.
 Notes:
 - description: 3-5 words (shown in UI). Prompts must be self-contained — the agent has not seen this conversation.
 - Parallel work: one message, multiple Agent calls — they run concurrently.
-- Subagents run in the background by default; you'll be notified when one completes. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Never fabricate or predict a pending agent's results — if the user asks before the notification arrives, say it's still running.
+- Subagents start in the foreground by default and automatically move to the background after 300 seconds if still running. Pass run_in_background: true to detach immediately, or false to keep blocking until completion. Never fabricate or predict a pending agent's results — if the user asks before the notification arrives, say it's still running.
 - The result is not shown to the user — summarize it for them. Verify an agent's claimed code changes before reporting work done.
 - resume continues a previous agent by ID; steer_subagent messages a running one.${isolationCompactGuideline}`;
 
@@ -1451,8 +1456,8 @@ If the target is already known, use a direct tool — \`read\` for a known path,
 - When you launch multiple agents for independent work, send them in a single message with multiple tool uses so they run concurrently. If the user specifies that they want you to run agents "in parallel", you MUST send a single message with multiple Agent tool use content blocks.
 - When the agent is done, it returns a single message back to you. The result is not visible to the user — to show the user, send a text message with a concise summary.
 - Trust but verify: an agent's summary describes what it intended to do, not necessarily what it did. When an agent writes or edits code, check the actual changes before reporting the work as done.
-- Agents run in the background by default. When an agent runs in the background, you will be automatically notified when it completes — do NOT sleep, poll, or proactively check on its progress. Continue with other work or respond to the user instead.
-- **Foreground vs background**: Pass \`run_in_background: false\` only when your very next action depends on the agent's result and nothing else could usefully happen while it runs — e.g., a research agent whose finding gates the edit you're about to make. Otherwise let it run in the background (the default) — this includes fire-and-forget work, independent investigations, and anything where the user might hand you something else in the meantime. Wanting the result "next" is not enough on its own.
+- Agents start in the foreground by default. If an unqualified fresh agent is still running after 300 seconds, it automatically moves to the background and you will be notified when it completes. Do NOT sleep or poll after it detaches; continue with other work or respond to the user instead.
+- **Foreground vs background**: Pass \`run_in_background: true\` for work that should detach immediately. Pass \`false\` only when the result must stay inline even if it takes longer than 300 seconds. Omit it for the normal foreground-first, auto-background behavior.
 - **Don't race**: after launching a background agent, you know nothing about its results. Never fabricate or predict them in any format — not as prose, summary, or structured output. The completion notification arrives in a later turn; it is never something you write yourself. If the user asks before it lands, say the agent is still running — give status, not a guess.
 - Use resume with an agent ID to continue a previous agent's work. A new (non-resume) Agent call starts a fresh agent with no memory of prior runs, so the prompt must be self-contained.
 - Use steer_subagent to send mid-run messages to a running background agent.
@@ -1579,7 +1584,7 @@ Terse command-style prompts produce shallow, generic work.
       ),
       run_in_background: Type.Optional(
         Type.Boolean({
-          description: "Defaults to true — the agent runs detached, returning its ID immediately, and you are notified on completion. Set false only when your very next action depends on the result; the call then blocks and returns the agent's full output inline.",
+          description: "Omit for the default: start in foreground, then automatically move to background after 300 seconds if still running. True detaches immediately; false blocks until completion without automatic detachment.",
         }),
       ),
       resume: Type.Optional(
@@ -1758,6 +1763,11 @@ Terse command-style prompts produce shallow, generic work.
       const customConfig = getAgentConfig(subagentType);
 
       const resumeRecord = params.resume ? manager.getRecord(params.resume) : undefined;
+      const autoBackground = !params.resume
+        && !params.schedule
+        && customConfig?.runInBackground === undefined
+        && params.run_in_background === undefined
+        && getBackgroundByDefault();
       let resolvedHarness: HarnessResolution;
       try {
         resolvedHarness = resolveHarnessInvocation({
@@ -1768,7 +1778,9 @@ Terse command-style prompts produce shallow, generic work.
           resumeHarness: resumeRecord?.harness,
           agentLabel: customConfig?.displayName ?? subagentType,
           worktreeAllowed: isWorktreeIsolationEnabled(),
-          defaultRunInBackground: getBackgroundByDefault(),
+          // Unqualified fresh calls start foreground and use the manager timer.
+          // Other paths keep their existing immediate foreground/background semantics.
+          defaultRunInBackground: autoBackground ? false : getBackgroundByDefault(),
         });
       } catch (err) {
         return textResult(err instanceof Error ? err.message : String(err));
@@ -2141,7 +2153,7 @@ Terse command-style prompts produce shallow, generic work.
             fgRec.toolCallId = toolCallId;
           }
           attachTranscript(fgRec, fgAgentId);
-        });
+        }, autoBackground ? DEFAULT_AUTO_BACKGROUND_MS : undefined);
         record = fgResult.record;
         movedToBackground = record.isBackground === true;
       } finally {
@@ -2219,7 +2231,13 @@ Terse command-style prompts produce shallow, generic work.
     return {
       ...tool,
       execute: async (toolCallId: string | undefined, ...rest: any[]) => {
-        const result = await tool.execute(toolCallId, ...rest);
+        let result = await tool.execute(toolCallId, ...rest);
+        // Resolution failures happen before AgentDetails exists (for example a
+        // missing light model with a long available-model list).
+        if (typeof rest[0]?.subagent_type === "string" && rest[0].subagent_type.trim().toLowerCase() === BULK_READER) {
+          result = { ...result, content: result.content.map((part: any) =>
+            part.type === "text" ? { ...part, text: boundBulkResult(part.text) } : part) };
+        }
         if (!reportUsage || !toolCallId) return result;
         const usage = pendingUsage.drain();
         return usage ? { ...result, usage } : result;
@@ -2336,7 +2354,7 @@ Terse command-style prompts produce shallow, generic work.
         }
       }
 
-      return textResult(output);
+      return textResult(record.type === BULK_READER ? boundBulkResult(output) : output);
     },
   }));
 
@@ -2812,7 +2830,7 @@ extensions: <true (inherit all MCP/extension tools), false (none), or comma-sepa
 skills: <true (inherit all), false (none), or comma-separated skill names to preload into prompt. Default: true>
 disallowed_tools: <comma-separated tool names to block, even if otherwise available. Omit for none>
 inherit_context: <true to fork parent conversation into agent so it sees chat history. Default: false>
-run_in_background: <pin this agent to background (true) or foreground (false). Omit to follow the backgroundByDefault setting, which is background>
+run_in_background: <pin this agent to immediate background (true) or foreground without automatic detachment (false). Omit for foreground-first execution that automatically backgrounds after 300 seconds>
 output_transcript: <false to write no transcript file or path for this agent. Independent of persist_session. Default: true>
 isolated: <true for no extension/MCP tools, only built-in tools. Default: false>
 memory: <"user" (global), "project" (per-project), or "local" (gitignored per-project) for persistent memory. Omit for none>${
@@ -3068,8 +3086,8 @@ Write the file using the write tool. Only write the file, nothing else.`;
         },
         {
           id: "backgroundByDefault",
-          label: "Background by default",
-          description: "An Agent call that doesn't say runs detached (off = blocks the turn and returns inline)",
+          label: "Auto-background after 5m",
+          description: "An unqualified fresh Agent call starts foreground, then detaches after 300 seconds (off = stays foreground)",
           currentValue: getBackgroundByDefault() ? "on" : "off",
           values: ["on", "off"],
         },
@@ -3233,8 +3251,8 @@ Write the file using the write tool. Only write the file, nothing else.`;
         notifyApplied(
           ctx,
           enabled
-            ? "Agent calls run in the background unless they pass run_in_background: false"
-            : "Agent calls block and return inline unless they pass run_in_background: true",
+            ? "Unqualified fresh Agent calls auto-background after 300 seconds"
+            : "Unqualified Agent calls stay in the foreground",
         );
       } else if (id === "schedulingEnabled") {
         const enabled = value === "on";

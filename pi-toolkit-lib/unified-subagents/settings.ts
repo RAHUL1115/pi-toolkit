@@ -45,20 +45,15 @@ export interface SubagentsSettings {
   graceTurns?: number;
   defaultJoinMode?: JoinMode;
   /**
-   * Whether a top-level `Agent` spawn that doesn't say runs detached.
-   * Defaults to `true`, following Claude Code, where the agent backgrounds
-   * unless the caller passes `run_in_background: false`. Set `false` to restore
-   * the previous behaviour, where an unqualified spawn blocked the turn and
-   * returned its result inline.
+   * Whether an unqualified fresh top-level `Agent` call automatically moves to
+   * the background after 300 seconds. Defaults to `true`; `false` leaves it in
+   * the foreground until completion.
    *
-   * Top-level only. Nested spawns (a subagent spawning its own) always default
-   * to foreground regardless of this setting — see `nested-tools.ts`, where a
-   * detached child would be killed by `abortOwnedChildren` when its parent
-   * settles, with no notification path to deliver its result.
-   *
-   * An explicit `run_in_background` on the call, or in the agent file's
-   * frontmatter, overrides this in both directions; the setting only decides
-   * what "unspecified" means.
+   * Top-level tool calls only. Nested spawns always default to foreground, while
+   * schedules, resumes, mentions, and RPC calls keep their existing execution
+   * semantics. Explicit `run_in_background: true` detaches immediately and
+   * explicit `false` disables automatic detachment. Agent frontmatter has the
+   * same precedence as an explicit call value.
    */
   backgroundByDefault?: boolean;
   /**

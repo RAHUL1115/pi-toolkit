@@ -6,10 +6,8 @@ This package is a local composition of user-owned workflow features and modified
 
 | Pi Toolkit area | Provenance | Evidence |
 |---|---|---|
-| `pi-toolkit-lib/observability.ts` | Modified from `pi-observability` 1.3.2 | The npm 1.3.2 source has the same module structure and implementation. Local commands and branding were changed from `obs` to `ptk`. |
-| `pi-toolkit-lib/lib/footer-engine/**` | Copied/modified from `pi-observability` 1.3.2 | Four of five TypeScript files are byte-identical to the npm 1.3.2 package; `segments.ts` changes the Git icon. |
-| `pi-toolkit-lib/lib/storage/**` | Copied from `pi-observability` 1.3.2 | All six TypeScript files are byte-identical to the npm 1.3.2 package. |
-| `pi-toolkit-lib/lib/settings/**` | Modified from `pi-observability` 1.3.2 | The same settings modules remain, with Pi Toolkit footer/path options and namespaced global-settings persistence added locally. |
+| `pi-toolkit-lib/footer.ts`, `usage.ts`, `usage-snapshot.ts`, `usage-history.ts` | User-owned replacement | Independent single-line footer and rolling-usage tab registrars, shared ledger formatting, and a bounded read-only native session scanner. |
+| Removed `observability.ts` and `lib/{footer-engine,storage,settings}/**` | Historical derivative of `pi-observability` 1.3.2 | Former source matched npm 1.3.2 with local branding, footer controls, Git icon, and settings changes. Replaced rather than updated; historical notice retained. |
 | `pi-toolkit-lib/ask-user-question/**` | Copied/modified from `pi-askuserquestion` 1.0.0 | The component, schema, validation, and registration code were merged at upstream commit `e58609c9e9c8c4e8a0348c96eaad38dd7e6f0578`; registration now rejects every non-TUI mode explicitly. |
 | `pi-toolkit-lib/unified-subagents/**` | Copied/modified from local `pi-unified-subagents` snapshot `4b581fa99dc13f1a4295f2935cdf0205a0ab9443` | The complete source was moved under Pi Toolkit and its default factory became a private registrar invoked by the sole package entrypoint. Tests and documentation are retained under `test/unified-subagents/**` and `docs/unified-subagents/**`. |
 | Compact grouped built-in rendering in `index.ts` | User-owned replacement for `pi-tool-display`; not a source copy | It serves a similar purpose, but a normalized token comparison found no shared 12-token code sequence with `pi-tool-display` 0.5.0. It uses Pi's exported built-in tool factories and a separate grouping design. |
@@ -28,7 +26,7 @@ This package is a local composition of user-owned workflow features and modified
 
 The upstream component, schema, uniqueness validation, and tool registration are retained. Pi Toolkit changes only the registration export name, integration path, and non-TUI guard. The upstream component regression suite is retained under `test/ask-user-question.test.ts`.
 
-### pi-observability 1.3.2
+### pi-observability 1.3.2 (historical, implementation removed)
 
 - Repository: <https://github.com/imran-vz/pi-observability>
 - npm: <https://www.npmjs.com/package/pi-observability/v/1.3.2>
@@ -36,7 +34,7 @@ The upstream component, schema, uniqueness validation, and tool registration are
 - License: MIT
 - Local license copy: [`pi-toolkit-lib/LICENSE.pi-observability`](pi-toolkit-lib/LICENSE.pi-observability)
 
-Comparison against the published 1.3.2 tarball found 19 corresponding TypeScript files: 10 byte-identical and 9 locally modified. The aggregate local delta is concentrated in branding/commands, footer controls, the branch icon, and moving footer configuration under `pi-toolkit.footer` in Pi's global settings.
+Before replacement, comparison against the published 1.3.2 tarball found 19 corresponding TypeScript files: 10 byte-identical and 9 locally modified. The historical local delta was concentrated in branding/commands, footer controls, the branch icon, and moving footer configuration under `pi-toolkit.footer` in Pi's global settings. Those exclusively owned modules have now been removed. Old settings and history files on users' disks are preserved but no longer consumed.
 
 The MIT notice is retained. Keep the notice and this attribution whenever distributing substantial portions of `pi-toolkit-lib`.
 
@@ -50,7 +48,7 @@ The MIT notice is retained. Keep the notice and this attribution whenever distri
 - Local license copy: [`pi-toolkit-lib/LICENSE.pi-unified-subagents`](pi-toolkit-lib/LICENSE.pi-unified-subagents)
 - Retained documentation snapshot: [`docs/unified-subagents/README.md`](docs/unified-subagents/README.md)
 
-The source is retained as one internal module tree. Its tool names (`Agent`, `get_subagent_result`, and `steer_subagent`), `subagents:*` event/RPC names, `Symbol.for("pi-subagents:manager")` manager handle, `.pi/agents` and `.pi/subagents.json` conventions, child-session guard, output-transcript behavior, and persisted settings remain unchanged. Only relative integration paths and the factory export/registration seam changed.
+The source is retained as one internal module tree. Its tool names (`Agent`, `get_subagent_result`, and `steer_subagent`), `subagents:*` event/RPC names, `Symbol.for("pi-subagents:manager")` manager handle, `.pi/agents` and `.pi/subagents.json` conventions, child-session guard, output-transcript behavior, and persisted settings remain compatible. Pi Toolkit has since added local integration changes: a shared Tasks/Agents Activity view, permanent suppression of the legacy above-editor widget, task-detail return navigation, compact paired tool results, and unified conversation-viewer navigation. Git history records those post-snapshot changes.
 
 ## Historical influence not copied into this package
 

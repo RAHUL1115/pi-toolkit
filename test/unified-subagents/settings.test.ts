@@ -245,9 +245,8 @@ describe("settings persistence", () => {
   });
 
   it("round-trips backgroundByDefault (true and false), and absence stays absent", () => {
-    // `false` is the load-bearing case: it's how a user restores the previous
-    // foreground default, so it must survive a save/load rather than being
-    // read back as absent and re-defaulting to background.
+    // `false` is load-bearing: it disables the five-minute auto-detach, so it
+    // must survive save/load rather than becoming absent and re-enabling it.
     saveSettings({ backgroundByDefault: false }, projectDir);
     expect(loadSettings(projectDir)).toEqual({ backgroundByDefault: false });
 

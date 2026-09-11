@@ -120,8 +120,8 @@ describe("agent type registry", () => {
       }
     });
 
-    it("getDefaultAgentNames returns exactly the original three agents", () => {
-      expect(getDefaultAgentNames()).toEqual(["general-purpose", "Explore", "Plan"]);
+    it("getDefaultAgentNames includes the reserved bulk reader", () => {
+      expect(getDefaultAgentNames()).toEqual(["general-purpose", "Explore", "Plan", "bulk-reader"]);
     });
 
     it("BUILTIN_TOOL_NAMES includes all built-in tools", () => {
@@ -151,7 +151,7 @@ describe("agent type registry", () => {
       setDefaultsDisabled(true);
       registerAgents(new Map());
 
-      expect(getAvailableTypes()).toEqual([]);
+      expect(getAvailableTypes()).toEqual(["bulk-reader"]);
       expect(isValidType("general-purpose")).toBe(false);
       expect(isValidType("Explore")).toBe(false);
       expect(isValidType("Plan")).toBe(false);
@@ -161,9 +161,9 @@ describe("agent type registry", () => {
       setDefaultsDisabled(true);
       registerAgents(new Map([["auditor", makeAgentConfig({ name: "auditor" })]]));
 
-      expect(getAvailableTypes()).toEqual(["auditor"]);
+      expect(getAvailableTypes()).toEqual(["auditor", "bulk-reader"]);
       expect(isValidType("auditor")).toBe(true);
-      expect(getDefaultAgentNames()).toEqual([]);
+      expect(getDefaultAgentNames()).toEqual(["bulk-reader"]);
     });
 
     it("re-enabling restores defaults on next registerAgents", () => {

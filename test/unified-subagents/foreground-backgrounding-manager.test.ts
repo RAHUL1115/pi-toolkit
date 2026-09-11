@@ -29,7 +29,10 @@ const result = (responseText: string): RunResult => ({
 describe("AgentManager — foreground to background", () => {
   let manager: AgentManager;
 
-  afterEach(() => manager?.dispose());
+  afterEach(() => {
+    vi.useRealTimers();
+    manager?.dispose();
+  });
 
   it("releases the foreground caller, detaches parent abort, and joins the background pool", async () => {
     const finishes: Array<(value: RunResult) => void> = [];
@@ -78,6 +81,34 @@ describe("AgentManager — foreground to background", () => {
 
     finishes[1](result("second done"));
     await manager.getRecord(queuedId)?.promise;
+  });
+
+  it("automatically backgrounds a foreground run after the requested delay", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: RunResult) => void;
+    vi.mocked(runAgent).mockImplementation(() => new Promise<RunResult>((resolve) => { finish = resolve; }));
+    manager = new AgentManager();
+
+    const foreground = manager.spawnAndWait(
+      mockPi,
+      mockCtx,
+      "general-purpose",
+      "slow",
+      { description: "slow" },
+      undefined,
+      300_000,
+    );
+    const record = manager.listAgents()[0];
+
+    await vi.advanceTimersByTimeAsync(299_999);
+    expect(record.isBackground).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(foreground).resolves.toEqual({ id: record.id, record });
+    expect(record.isBackground).toBe(true);
+
+    finish(result("done"));
+    await record.promise;
   });
 
   it("does nothing when no blocking foreground caller exists", () => {

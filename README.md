@@ -1,6 +1,6 @@
 # pi-toolkit
 
-A local Pi extension that combines workflow improvements, compact tool rendering, skill shortcuts, editor enhancements, and an observability footer/dashboard.
+A local Pi extension that combines workflow improvements, compact tool rendering, skill shortcuts, editor enhancements, and a fixed single-line footer and rolling usage dashboard.
 
 ## Features
 
@@ -16,8 +16,8 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 | Context control | Adds an explicit-only `context_tool` tool for normal compaction or an opt-in blank chat |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
 | Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
-| Footer | Shows model, runtime, path, Git, context, tokens, TPS, and cost |
-| Observability | Provides a session dashboard, per-turn metrics, TPS summaries, and history |
+| Footer | Fixed model, folder, Git branch, context/input/output, estimated generation TPS, and session cost |
+| Usage | Rolling 1-day, 7-day, and 30-day usage tabs |
 
 ## Install
 
@@ -33,15 +33,14 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 /reload
 ```
 
-`/ptk` reloads Pi automatically after workflow settings change. Footer settings apply immediately.
+`/ptk` reloads Pi automatically after workflow settings change. The footer has no settings or toggles.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
 | `/ptk` | Configure workflow feature toggles |
-| `/ptk-footer-settings` | Configure the footer, segments, presets, path display, and context thresholds |
-| `/ptk-obs` | Open the observability dashboard |
+| `/ptk-usage` | Rolling 1-day, 7-day, and 30-day usage tabs across Pi sessions |
 | `/tasks` | View, stop, and clear background tasks |
 | `/agents` | Manage agents, schedules, running jobs, and unified-subagent settings |
 
@@ -145,7 +144,7 @@ The toolkit extends Pi's existing `bash` tool with optional `run_in_background` 
 }
 ```
 
-Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the footer shows `bg tasks:N` and the below-editor activity surface exposes a Tasks tab.
+Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the below-editor activity surface exposes a Tasks tab; the fixed footer does not add background-task counts.
 
 Open `/tasks` for the live task list and selected task's five-line output window. Use Up/Down to select a task, `J`/`K` to scroll output one line, Shift+Up/Down to move one page, and Alt+Up/Down to jump to the top or resume following the tail. Page Up/Page Down and `g`/`G` remain aliases. Selection follows the task ID when the list changes. Destructive actions require the same key twice: `x x` stops a running task but retains its record and output, `c c` or Delete twice clears a selected finished task, and `C C` clears all finished tasks. Duplicate asynchronous actions are ignored while one is pending. The agent can also use:
 
@@ -161,13 +160,15 @@ Per-job logs are capped at 2 MiB by default. Once full, the file records a limit
 
 When a background task exits, fails, is stopped, or times out, the toolkit sends only its final status and temporary log path to the main agent as a follow-up notification and triggers the next turn. Output enters context only when the agent explicitly calls `bash_output`, which remains bounded to 2,000 lines or 50KB. Active tasks are stopped and all task temp directories are removed during reload, session replacement, and orderly Pi shutdown. Task state is intentionally in-memory and does not survive a restart.
 
-The shared activity surface appears only while background tasks or top-level agents are running. While inactive it stays collapsed to filled, muted `Tasks N | Agents N` counters. Down always focuses the tabs—even when only one category exists—and a second Down expands and enters the selected list. Left/Right switches categories from either the tabs or rows. Up from the first row collapses back to the tabs; Up again or Esc returns to the editor. Enter opens the selected agent conversation or `/tasks` focused on the selected task; closing that detail view returns to its Activity list. Its terminal-input handler runs before editor shortcuts, so `Ctrl+B` detaches a blocking foreground agent when one exists and consumes the key; otherwise it passes through to the background-task shortcut.
+The shared activity surface appears only while background tasks are running or top-level agents are running/queued. While inactive it stays collapsed to the available filled, muted count tabs (`Tasks N` and/or `Agents N`). Down always focuses the tabs—even when only one category exists—and a second Down expands and enters the selected list. Left/Right switches categories from either the tabs or rows. Up from the first row collapses back to the tabs; Up again or Esc returns to the editor. Enter opens the selected agent conversation or `/tasks` focused on the selected task; closing that detail view returns to its Activity list while it still has active rows, otherwise to the remaining Activity tab or editor. Its terminal-input handler runs before editor shortcuts, so `Ctrl+B` detaches a blocking foreground agent when one exists and consumes the key; otherwise it passes through to the background-task shortcut.
 
 ## Unified subagents
 
 The toolkit's sole extension entrypoint privately registers the unified-subagent module. It preserves the established `Agent`, `get_subagent_result`, and `steer_subagent` tools, `/agents` UI, FleetView, schedules, child-session protection, persisted transcripts, output files, and `subagents:*` extension interfaces. The `Agent` tool selects a Pi, Claude Code, or Codex harness through its `harness` argument or agent frontmatter.
 
-FleetView now provides the shared live activity surface: the legacy `Agents` widget above the editor is always suppressed, while the below-editor tabs combine running tasks and agents without showing completed items. Agent rows show status, tool uses, token/context usage, elapsed time, and current activity; task rows show their title, ID, and elapsed time. Disabling FleetView hides the shared surface rather than restoring the legacy widget. Final `Agent` tool results and session records remain unchanged. The full-screen conversation viewer pairs calls with compact status rows, keeps failures visible, and uses Pi's `app.tools.expand` action (`Ctrl+O` by default) to toggle successful result details. It caches finalized transcript history, rebuilds only the streaming tail, and coalesces delta paints so long sessions stay responsive without changing compaction behavior. Use Up/Down for lines, Shift+Up/Down for pages, and Alt+Up/Down for top/bottom; `K`/`J`, Page Up/Page Down, and Home/End remain aliases.
+An unqualified fresh `Agent` call starts in the foreground and automatically moves to the background after 300 seconds if still running. `run_in_background: true` detaches immediately; `false` keeps the call foreground until completion. `Ctrl+B` can detach a foreground run sooner.
+
+FleetView now provides the shared live activity surface: the legacy `Agents` widget above the editor is always suppressed, while the below-editor tabs combine running tasks with running/queued agents without showing completed items. Agent rows show tool uses, turn/token/context usage, elapsed time, and current activity; task rows show their title, ID, and elapsed time. Disabling FleetView hides the shared surface rather than restoring the legacy widget. Final `Agent` tool results and session records remain unchanged. The full-screen conversation viewer pairs calls with compact status rows, keeps failures visible, and uses Pi's `app.tools.expand` action (`Ctrl+O` by default) to toggle successful result details. It caches finalized transcript history, rebuilds only the streaming tail, and coalesces delta paints so long sessions stay responsive without changing compaction behavior. Line/page scrolling honors configured `tui.select.*` bindings, with `K`/`J` and Shift+Up/Down retained as aliases. Home/Ctrl+Home/Alt+Up jump to the top; End/Ctrl+End/Alt+Down jump to the bottom. `Ctrl+O` follows `app.tools.expand`, and Esc/Ctrl+C/`q` closes. Zed intercepts Shift+Up/Down for terminal scrollback by default, so its terminal keymap must send those sequences to Pi; see the Zed note in the full guide.
 
 Project agent definitions remain in `.pi/agents/*.md`; project settings remain in `.pi/subagents.json`, with global settings under Pi's normal agent directory. Existing identifiers and persisted data formats are unchanged by the consolidation.
 
@@ -301,93 +302,31 @@ Current configuration:
 
 `toolView` persists the last layout selected with `Alt+O`; it is not edited through `/ptk`. The legacy stored value `"compact"` is interpreted as `"one line"`.
 
-## Observability footer
+## Fixed footer
 
-The toolkit footer replaces Pi's default footer when enabled. It can show:
+One line replaces Pi's footer in TUI mode (illustrative values):
 
-- model and thinking level
-- observed fast/priority service tier
-- session runtime
-- current folder or full working path
-- Git branch and textual diff counts
-- context usage bar, percentage, and token counts
-- completed-turn input/output tokens
-- live or last-turn TPS
-- estimated session cost
+```text
+  🤖 gpt-6-astra  📁 rahul  ⎇ main  ◔ 36.8% [↑12.4k ↓2.1k]  ⚡ 87.4t/s  $ 0.127
+```
 
-When the content does not fit on one line, the footer falls back to two truncated lines.
+Groups have two spaces between them and two spaces of outer padding, without distributing spare width. Folder is the runtime cwd basename; branch is omitted when unavailable. Context/input/output form one group. Context uses one decimal and warning color at 85%. Only the TPS suffix `t/s` is dim; its number uses normal text color. Narrow terminals clip the right end safely, preserving outer padding (reduced only below four columns). Native branch subscriptions are cleaned up on replacement/shutdown; there are no timers, shell polling, settings, or toggles.
 
-### Metric behavior
+Input (`↑`) is total session input: uncached input + cache reads + cache writes. Output (`↓`) includes reported reasoning, not added again. Both use the existing authoritative usage snapshot across all branches, compacted messages, summary usage and finalized nested tool usage; `/ptk-usage` accounting is unchanged. Cost is the same Pi/provider session estimate, rounded to three decimals, with `+?` retained for missing cost; it is not a subscription bill.
 
-- **Git diff:** polls `git diff --numstat` every second; binary and untracked-file counts are not included.
-- **Context zones:** colors context usage using the configured expert and warning thresholds.
-- **Live TPS:** estimates streaming throughput from message-update chunks.
-- **Turn TPS:** divides output tokens by turn duration.
-- **Cost and tokens:** depend on usage reported by the active provider.
-- **Fast mode:** shown only after a supported OpenAI response reports a priority/fast service tier.
+TPS is a **client-observed generation estimate**, not precise live decoding speed. It always appears, starting at `0.0t/s`, then divides final assistant `usage.output` by monotonic elapsed time from the first nonempty text, thinking, or tool-call delta to assistant message completion. This interval excludes initial request latency but includes streaming/network/extension overhead; buffered or hidden reasoning can distort it. No chunks, bytes, or characters are counted as tokens. A new assistant generation keeps the last valid measurement while streaming; missing/invalid output usage, no observed delta, or a nonpositive interval also retain it. A valid measured zero replaces the prior value. Model changes, tree navigation, session switches, and reloads reset TPS to `0.0t/s`; historical speed is not reconstructed. The completed result excludes subsequent tool waits and child-agent output.
 
-## Footer settings
+## Rolling usage tabs
 
-Open `/ptk-footer-settings` to change settings immediately.
+`/ptk-usage` defaults to **1 day**, with distinct **7 days** and **30 days** tabs. These mean the rolling last **24/168/720 hours across projects**, not calendar days. Left/Right or Tab switches periods; Up/Down and PageUp/PageDown scroll; Escape/Enter closes. The tab row and key hints remain visible. Reopen to refresh the snapshot; changing tabs never rescans.
 
-### General settings
+The read-only scan uses native Pi session JSONL under Pi's agent sessions directory, plus the active custom session directory/file and completed in-memory entries. Message timestamps determine inclusion; summary entries use their ISO timestamps. The cutoff is a fixed UTC instant. All branches, compacted messages, compaction/branch-summary usage, and finalized `toolResult.usage` count. Reasoning is a reported subset of output, not an additional token total. Retained context copies, `obs-turn`, notifications, and nested tool details are not accounting sources.
 
-| Setting | Default |
-|---|---|
-| Pi Toolkit Footer | `true` |
-| Full Working Path | `false` |
-| Layout Preset | `standard` |
-| Expert Zone Threshold | `70` |
-| Warning Zone Threshold | `85` |
+Native fork/clone copies are deduplicated by stable entry ID, timestamp and payload hash, not the short ID alone. Unreported/pending nested work is unavailable. **An independently saved child ledger and its parent's aggregated tool usage lack shared provenance, so their overlap cannot be reliably reconciled.** No model/provider-name heuristic hides custom models or guesses whether a native ledger is a test; non-session telemetry is rejected.
 
-The expert threshold is always kept less than or equal to the warning threshold.
+Pi 0.84.2 has no public cross-session usage API. `SessionManager.list/listAll` build search previews without cancellation/pagination; `open` loads synchronously and may migrate files. Instead, the local UI scans the documented format once, sequentially, with cancellation and limits: 30 seconds, 512 MiB total, 10,000 files, 64 MiB per file. Malformed records, inaccessible/oversized files, unsupported legacy v1 sessions and budget exhaustion show partial-coverage warnings. Files are never migrated or changed. Custom session directories not associated with the active runtime are not discoverable.
 
-### Presets
-
-| Preset | Intended layout |
-|---|---|
-| `minimal` | Model and compact context information |
-| `standard` | Model, runtime, path, Git, context, tokens, and cost |
-| `verbose` | Every segment, including TPS |
-| `performance` | Model, context percentage/counts, TPS, and cost |
-
-Applying a preset updates all segment toggles. Individual segments can still be changed afterward.
-
-### Segment toggles
-
-- Model & Thinking
-- Runtime
-- Working Directory
-- Git Branch & Diff
-- Context Usage
-  - Progress Bar
-  - Percentage
-  - Used / Total
-- Session Tokens
-- TPS
-- Cost
-
-The context child toggles have no visible effect while the Context Usage master toggle is off.
-
-### Threshold choices
-
-- Expert: `60`, `65`, `70`, `75`, `80`
-- Warning: `75`, `80`, `85`, `90`, `95`
-
-## Observability dashboard
-
-`/ptk-obs` opens a TUI dashboard containing:
-
-- runtime, working directory, branch, model, and service tier
-- total input/output tokens and estimated cost
-- per-turn input, output, duration, TPS, cost, and model
-- the latest 10 persisted session summaries
-
-Close the dashboard with `Escape`, `Enter`, or `Space`.
-
-## End-of-run TPS summary
-
-After an agent run, the toolkit displays a summary containing TPS, output/input/cache tokens, total tokens, and elapsed time. This summary is independent of the footer-enabled and footer-TPS settings.
+Costs are recorded Pi/provider estimates, not subscription bills. Missing costs show `+?`; zero may also represent unknown catalog pricing. No new pricing table, model call, persistent tracker, or accounting cache is used. Session content stays local and is never injected into the conversation.
 
 ## Persistence
 
@@ -396,13 +335,8 @@ After an agent run, the toolkit displays a summary containing TPS, output/input/
 | Workflow settings | `pi-toolkit.json` beside `index.ts` |
 | Generated-title provenance | `pi-toolkit:auto-title` custom entries in the Pi session file |
 | Active dollar skills | `pi-toolkit:skill-loader` custom entries on the active session branch |
-| Footer settings | `pi-toolkit.footer` in `~/.pi/agent/settings.json` |
-| Session history | `~/.pi/agent/observability/history.jsonl` |
-| Per-turn observability | `obs-turn` custom entries in the Pi session file |
 
-Only the latest 10 cross-session summaries are retained. History is finalized during orderly session shutdown.
-
-Legacy footer settings under `~/.pi/agent/observability/settings.json` are migrated into Pi's namespaced global settings and then removed.
+The footer and usage modules have no persistent state. Obsolete `pi-toolkit.footer` settings, `~/.pi/agent/observability/` files, and existing `obs-turn` entries are left untouched and ignored; there is no migration or deletion of user data. The old `/ptk-obs` and `/ptk-footer-settings` commands are removed.
 
 ## Compatibility and limitations
 
@@ -412,7 +346,6 @@ Legacy footer settings under `~/.pi/agent/observability/settings.json` are migra
 - Repeat-paste expansion relies on Pi editor internals and may require adjustment after upstream editor changes.
 - Transcript markers are skipped on Pi versions without Markdown-transformer support.
 - The custom footer replaces information shown only by Pi's stock footer or other footer implementations.
-- Session history may miss the final run if Pi is force-killed without shutdown.
 - Background tasks are session-scoped; a force-killed Pi process can bypass orderly process and temporary-log cleanup.
 
 ## Development
@@ -427,7 +360,7 @@ The tests cover grouped rendering, collapsed layouts, expansion, previews, diff 
 
 ## Provenance
 
-The workflow, grouped-tool, skill, editor, and integration features are locally owned. The observability/footer subtree is a modified derivative of `pi-observability` 1.3.2, and the ask-user-question subtree is derived from `pi-askuserquestion` 1.0.0; both are under the MIT License.
+The workflow, grouped-tool, skill, editor, integration, and replacement footer/usage modules are locally owned. The removed observability implementation was derived from `pi-observability` 1.3.2; its historical attribution and MIT notice are retained. The ask-user-question subtree is derived from `pi-askuserquestion` 1.0.0 under the MIT License.
 
 See:
 

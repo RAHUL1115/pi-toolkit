@@ -29,13 +29,15 @@ assert.deepEqual(errors, []);
 
 assert.equal(extensions.length, 1, "root loader composes every toolkit module into one extension");
 const extension = extensions[0];
-assert(extension.commands.has("ptk-obs"));
+assert(extension.commands.has("ptk-usage"));
+assert(!extension.commands.has("ptk-obs"));
+assert(!extension.commands.has("ptk-footer-settings"));
 assert(extension.commands.has("agents"));
 for (const tool of ["Agent", "get_subagent_result", "steer_subagent", "bash_output", "bash_jobs", "bash_stop"]) {
 	assert(extension.tools.has(tool), `root loader registers ${tool}`);
 }
 assert(extension.commands.has("ptk"));
-assert.equal(extension.handlers.get("agent_end")?.length, 2, "automatic titles add one agent_end handler when enabled");
+assert.equal(extension.handlers.get("agent_end")?.length, 1, "automatic titles retain their handler; legacy TPS handler is removed");
 assert(extension.tools.has("ask_user_question"));
 const askUserQuestion = extension.tools.get("ask_user_question").definition;
 const duplicateQuestion = "Choose a runtime?";
@@ -104,8 +106,10 @@ const statusHarness = {
 };
 assert.equal(statusHarness.showStatus("Reloaded resources"), " Reloaded resources");
 const starts = extension.handlers.get("session_start");
-const updates = extension.handlers.get("message_update");
-const ends = extension.handlers.get("message_end");
+// Select the grouped renderer's handler; the legacy TPS handler is gone.
+const update = extension.handlers.get("message_update").at(-1);
+// The fixed footer registers its TPS observer before the renderer handlers.
+const ends = extension.handlers.get("message_end").slice(1);
 await ends[1]({ message: {
 	role: "assistant",
 	content: [{ type: "text", text: "working" }, { type: "toolCall", id: "call-1", name: "read", arguments: {} }],
@@ -174,7 +178,7 @@ const output = (prefix, count = 30) => Array.from(
 const readArgs = { path: "demo.txt" };
 const bashArgs = { command: "generate output with a deliberately long set of arguments that wraps onto another visual line" };
 const writeArgs = { path: "written.txt", content: output("write") };
-await updates[1]({ message: { role: "assistant", content: [
+await update({ message: { role: "assistant", content: [
 	toolCall("read-1", "read", readArgs),
 	toolCall("bash-1", "bash", bashArgs),
 	toolCall("write-1", "write", writeArgs),
@@ -369,7 +373,7 @@ states["bash-2"] = {};
 invalidations["bash-2"] = 0;
 const continued = bash.renderCall(bash2Args, theme, context("bash-2", bash2Args));
 assert.notEqual(continued.render(120).join("").trim(), "");
-await updates[1]({ message: { role: "assistant", content: [
+await update({ message: { role: "assistant", content: [
 	{ type: "thinking", thinking: "" },
 	toolCall("bash-2", "bash", bash2Args),
 ] } });
@@ -382,7 +386,7 @@ assert.match(rendered(), /tools 1 read · 2 bash · 1 write/);
 
 await ends[0]({ message: { role: "assistant", content: [toolCall("bash-2", "bash", bash2Args)] } });
 const bash3Args = { command: "after thinking" };
-await updates[1]({ message: { role: "assistant", content: [
+await update({ message: { role: "assistant", content: [
 	{ type: "thinking", thinking: "visible separator" },
 	toolCall("bash-3", "bash", bash3Args),
 ] } });
@@ -403,7 +407,7 @@ const singletonRows = parallel.map(({ id, args }) => {
 	return bash.renderCall(args, theme, context(id, args));
 });
 for (const row of singletonRows) assert.notEqual(row.render(120).join("").trim(), "");
-await updates[1]({ message: { role: "assistant", content: parallel.map(({ id, args }) =>
+await update({ message: { role: "assistant", content: parallel.map(({ id, args }) =>
 	toolCall(id, "bash", args)) } });
 assert.notEqual(singletonRows[0].render(120).join("").trim(), "");
 for (const row of singletonRows.slice(1)) assert.equal(row.render(120).join("").trim(), "");
@@ -420,7 +424,7 @@ const raceLeader = find.renderCall(raceFindArgs, theme, context("race-find", rac
 states["race-read"] = {};
 invalidations["race-read"] = 0;
 const raceFollower = read.renderCall(raceReadArgs, theme, context("race-read", raceReadArgs));
-await updates[1]({ message: { role: "assistant", content: [
+await update({ message: { role: "assistant", content: [
 	toolCall("race-read", "read", raceReadArgs),
 ] } });
 assert.match(raceLeader.render(120).join("\n"), /tools 1 find · 1 read/);
@@ -435,13 +439,13 @@ invalidations["mutable-a"] = 0;
 invalidations["mutable-b"] = 0;
 const mutableA = bash.renderCall(mutableAArgs, theme, context("mutable-a", mutableAArgs));
 const mutableB = bash.renderCall(mutableBArgs, theme, context("mutable-b", mutableBArgs));
-await updates[1]({ message: { role: "assistant", content: [
+await update({ message: { role: "assistant", content: [
 	{ type: "thinking", thinking: "" },
 	toolCall("mutable-a", "bash", mutableAArgs),
 	toolCall("mutable-b", "bash", mutableBArgs),
 ] } });
 assert.match(mutableA.render(120).join("\n"), /tools 2 bash/);
-await updates[1]({ message: { role: "assistant", content: [
+await update({ message: { role: "assistant", content: [
 	{ type: "thinking", thinking: "became visible" },
 	toolCall("mutable-a", "bash", mutableAArgs),
 	toolCall("mutable-b", "bash", mutableBArgs),
@@ -500,14 +504,14 @@ writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 const { extensions: oneLineExtensions, errors: oneLineErrors } = await loadExtensions([extensionPath], extensionRoot);
 assert.deepEqual(oneLineErrors, []);
 const oneLineExtension = oneLineExtensions[0];
-assert.equal(oneLineExtension.handlers.get("agent_end")?.length, 1, "automatic titles register no handler when disabled");
+assert.equal(oneLineExtension.handlers.get("agent_end")?.length ?? 0, 0, "automatic titles register no handler when disabled");
 const oneLineStarts = oneLineExtension.handlers.get("session_start");
-const oneLineUpdates = oneLineExtension.handlers.get("message_update");
+const oneLineUpdate = oneLineExtension.handlers.get("message_update").at(-1);
 await oneLineStarts[1]({}, {
 	ui: { getToolsExpanded: () => false },
 	sessionManager: { buildSessionContext: () => ({ messages: [] }) },
 });
-await oneLineUpdates[1]({ message: { role: "assistant", content: [
+await oneLineUpdate({ message: { role: "assistant", content: [
 	toolCall("one-line-read", "read", { path: "one-line.txt" }),
 	toolCall("one-line-bash", "bash", { command: "echo one-line" }),
 ] } });

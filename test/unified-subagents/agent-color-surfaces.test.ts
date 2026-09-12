@@ -81,6 +81,9 @@ function makePi() {
   const handlers = new Map<string, SessionHandler>();
   const pi = {
     registerMessageRenderer: vi.fn(),
+    registerEntryRenderer: vi.fn(),
+    registerFlag: vi.fn(),
+    getFlag: vi.fn(),
     registerTool: vi.fn((tool: unknown) => {
       const registered = tool as RegisteredTool;
       tools.set(registered.name, registered);

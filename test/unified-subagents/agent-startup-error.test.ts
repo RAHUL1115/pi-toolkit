@@ -23,6 +23,9 @@ function boot() {
   const tools = new Map<string, any>();
   const pi = {
     registerMessageRenderer: vi.fn(),
+    registerEntryRenderer: vi.fn(),
+    registerFlag: vi.fn(),
+    getFlag: vi.fn(),
     registerTool: vi.fn((t: any) => tools.set(t.name, t)),
     registerCommand: vi.fn(),
     on: vi.fn(),

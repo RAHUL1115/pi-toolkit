@@ -117,6 +117,9 @@ export type JoinMode = 'async' | 'group' | 'smart';
  */
 export type WidgetMode = 'all' | 'background' | 'off';
 
+/** How much of the conversation viewer transcript is rendered as Markdown. */
+export type ViewerMarkdownMode = 'off' | 'assistant' | 'all';
+
 /**
  * How `@handle message` starts an agent that is not already running.
  * - `model`: inject Claude Code's `agent_mention` reminder and let the main
@@ -173,6 +176,10 @@ export interface AgentRecord {
   session?: SubagentSession;
   abortController?: AbortController;
   promise?: Promise<string>;
+  /** True while a caller is awaiting this agent inline. */
+  blocking?: boolean;
+  /** Resolves when a queued record starts or is stopped. */
+  startGate?: Promise<void>;
   groupId?: string;
   joinMode?: JoinMode;
   /** Set when result was already consumed via get_subagent_result — suppresses completion notification. */
@@ -219,8 +226,14 @@ export interface AgentRecord {
   invocation?: AgentInvocation;
   /** Nesting depth: top-level subagent = 1. */
   depth?: number;
+  /** Validated structured-output payload, kept separate from human-readable result prose. */
+  structuredJson?: string;
+  /** Whether structured output required the retry prompt. */
+  structuredRetried?: boolean;
   /** Parent agent ID for ownership-scoped nested controls. */
   parentAgentId?: string;
+  /** Workflow run that owns this child; owned children are hidden from top-level surfaces. */
+  workflowId?: string;
   /** Effective inherited nesting cap for this branch. */
   maxSubagentDepth?: number;
   /**

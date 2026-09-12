@@ -254,29 +254,69 @@ export async function runPrintMode(options: RunPrintModeOptions): Promise<PrintM
   const isolateGlobals = options.isolateGlobals ?? !live;
   const timeoutMs = options.timeoutMs ?? 30_000;
 
-  // --- working dir (own it only if we created it) ---
+  // --- resources (registered before setup so every initialization error is safe) ---
   const ownsCwd = options.cwd == null;
   const cwd = options.cwd ?? mkdtempSync(join(tmpdir(), "subagents-print-"));
-
-  // chdir into cwd: the extension discovers project custom agents from process.cwd()
-  // (not ctx.cwd), and re-reads them on every Agent invocation — so a custom agent
-  // is only spawnable if process.cwd() points at the dir holding it. Restored on
-  // dispose. (Vitest isolates test files per process, so this doesn't race.)
   const prevCwd = process.cwd();
-  process.chdir(cwd);
-
-  // --- isolate global discovery so the dev env can't bleed in ---
   const prevAgentDir = process.env.PI_CODING_AGENT_DIR;
   const prevHome = process.env.HOME;
   let hermeticDir: string | undefined;
-  if (isolateGlobals) {
-    hermeticDir = mkdtempSync(join(tmpdir(), "subagents-print-home-"));
-    process.env.PI_CODING_AGENT_DIR = hermeticDir;
-    process.env.HOME = hermeticDir;
-  }
+  let faux: ReturnType<typeof registerFauxProvider> | undefined;
+  let session: AgentSession | undefined;
+  let disposed = false;
+
+  const dispose = async () => {
+    if (disposed) return;
+    disposed = true;
+    const failures: unknown[] = [];
+    const attempt = async (action: () => void | Promise<void>) => {
+      try {
+        await action();
+      } catch (error) {
+        failures.push(error);
+      }
+    };
+
+    // Shutdown precedes dispose: extensions need their live context to clear
+    // timers and abort children. The remaining cleanup still runs if either fails.
+    await attempt(async () => {
+      await session?.extensionRunner?.emit({ type: "session_shutdown", reason: "quit" });
+    });
+    await attempt(() => session?.dispose?.());
+    await attempt(() => faux?.unregister());
+    delete (globalThis as Record<symbol, unknown>)[MANAGER_KEY];
+    // Restore cwd before removing a caller-owned fixture or our temp directory.
+    await attempt(() => process.chdir(prevCwd));
+    await attempt(() => {
+      if (!isolateGlobals) return;
+      if (prevAgentDir == null) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = prevAgentDir;
+      if (prevHome == null) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+    });
+    if (hermeticDir) {
+      await attempt(() => rmSync(hermeticDir, { recursive: true, force: true }));
+    }
+    if (ownsCwd) {
+      await attempt(() => rmSync(cwd, { recursive: true, force: true }));
+    }
+
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, "print-mode cleanup failed");
+  };
+
+  try {
+    // The extension discovers project custom agents from process.cwd(), not
+    // ctx.cwd, and re-reads them on every Agent invocation.
+    process.chdir(cwd);
+
+    if (isolateGlobals) {
+      hermeticDir = mkdtempSync(join(tmpdir(), "subagents-print-home-"));
+      process.env.PI_CODING_AGENT_DIR = hermeticDir;
+      process.env.HOME = hermeticDir;
+    }
 
   // --- model backend ---
-  let faux: ReturnType<typeof registerFauxProvider> | undefined;
   let model: Model<string> | undefined;
   let modelRegistry: unknown;
   let modelRuntime: unknown;
@@ -348,12 +388,20 @@ export async function runPrintMode(options: RunPrintModeOptions): Promise<PrintM
     noContextFiles: true,
   });
   await loader.reload();
+  const extensionErrors = loader.getExtensions().errors;
+  if (extensionErrors.length > 0) {
+    throw new Error(
+      `print-mode extension load failed:\n${extensionErrors
+        .map(({ path, error }) => `${path}: ${error}`)
+        .join("\n")}`,
+    );
+  }
 
   // Run any test-supplied registration (e.g. loadCustomAgents) now that globals
   // are isolated but before the parent turn spawns anything.
   await options.beforeRun?.();
 
-  const { session } = await createAgentSession({
+  ({ session } = await createAgentSession({
     cwd,
     agentDir,
     model,
@@ -368,7 +416,7 @@ export async function runPrintMode(options: RunPrintModeOptions): Promise<PrintM
     settingsManager: live
       ? SettingsManager.create(cwd, agentDir)
       : SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
-  });
+  }));
   session.setSessionName("print-mode-host");
 
   // Binding fires session_start so the extension initializes and publishes its
@@ -417,40 +465,6 @@ export async function runPrintMode(options: RunPrintModeOptions): Promise<PrintM
   const onAbort = () => session.abort();
   options.signal?.addEventListener("abort", onAbort, { once: true });
 
-  const dispose = async () => {
-    // Emit session_shutdown FIRST so extensions tear down cleanly — in live mode
-    // the real env loads global extensions (e.g. a status-bar) whose background
-    // timers would otherwise fire after dispose() invalidates the ctx and surface
-    // as unhandled "stale ctx" rejections. dispose() itself does the invalidation,
-    // so shutdown has to happen before it.
-    try {
-      await session.extensionRunner?.emit({ type: "session_shutdown", reason: "quit" });
-    } catch {
-      /* ignore */
-    }
-    try {
-      session.dispose?.();
-    } catch {
-      /* ignore */
-    }
-    faux?.unregister();
-    delete (globalThis as Record<symbol, unknown>)[MANAGER_KEY];
-    // Restore cwd before removing the temp dir (can't rm the dir you're in).
-    try {
-      process.chdir(prevCwd);
-    } catch {
-      /* ignore */
-    }
-    if (isolateGlobals) {
-      if (prevAgentDir == null) delete process.env.PI_CODING_AGENT_DIR;
-      else process.env.PI_CODING_AGENT_DIR = prevAgentDir;
-      if (prevHome == null) delete process.env.HOME;
-      else process.env.HOME = prevHome;
-      if (hermeticDir) rmSync(hermeticDir, { recursive: true, force: true });
-    }
-    if (ownsCwd) rmSync(cwd, { recursive: true, force: true });
-  };
-
   // --- drive the turn under a wall-clock guard ---
   let timer: ReturnType<typeof setTimeout> | undefined;
   let failed = false;
@@ -490,11 +504,6 @@ export async function runPrintMode(options: RunPrintModeOptions): Promise<PrintM
     } catch {
       /* ignore */
     }
-    try {
-      await dispose();
-    } catch {
-      /* ignore — the turn error below is the diagnostic that matters */
-    }
     throw err;
   } finally {
     clearTimeout(timer);
@@ -519,6 +528,18 @@ export async function runPrintMode(options: RunPrintModeOptions): Promise<PrintM
     modelCalls: faux?.state.callCount ?? 0,
     dispose,
   };
+  } catch (error) {
+    try {
+      await dispose();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "runPrintMode failed and cleanup also failed",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -527,10 +548,15 @@ export async function runPrintMode(options: RunPrintModeOptions): Promise<PrintM
  * own output; for a background spawn it's the "started in background" envelope.
  */
 export function agentToolResults(session: AgentSession): string[] {
+  return toolResultsNamed(session, "Agent");
+}
+
+/** Read results for Agent or SubagentWorkflow through the same session boundary. */
+export function toolResultsNamed(session: AgentSession, toolName: string): string[] {
   const out: string[] = [];
   for (const msg of session.messages) {
     if (msg.role !== "toolResult") continue;
-    if ((msg as { toolName?: string }).toolName !== "Agent") continue;
+    if ((msg as { toolName?: string }).toolName !== toolName) continue;
     const text = (msg.content as Array<{ type?: string; text?: string }>)
       .map((b) => (b.type === "text" ? (b.text ?? "") : ""))
       .join("");
@@ -575,11 +601,16 @@ export function invokedToolNames(session: AgentSession): string[] {
  * `subagent_type`) rather than just that *some* spawn happened.
  */
 export function agentToolCalls(session: AgentSession): Array<Record<string, unknown>> {
+  return toolCallsNamed(session, "Agent");
+}
+
+/** Inspect actual calls, rather than accepting a model's narrative as execution. */
+export function toolCallsNamed(session: AgentSession, toolName: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   for (const msg of session.messages) {
     if (msg.role !== "assistant") continue;
     for (const block of msg.content as Array<{ type?: string; name?: string; arguments?: unknown }>) {
-      if (block.type === "toolCall" && block.name === "Agent") {
+      if (block.type === "toolCall" && block.name === toolName) {
         out.push((block.arguments ?? {}) as Record<string, unknown>);
       }
     }

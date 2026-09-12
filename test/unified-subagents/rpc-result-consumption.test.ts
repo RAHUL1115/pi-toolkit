@@ -48,6 +48,9 @@ function makePi() {
   };
   const pi = {
     registerMessageRenderer: vi.fn(),
+    registerEntryRenderer: vi.fn(),
+    registerFlag: vi.fn(),
+    getFlag: vi.fn(),
     registerTool: vi.fn(),
     registerCommand: vi.fn(),
     on: vi.fn((event: string, handler: any) => lifecycle.set(event, handler)),

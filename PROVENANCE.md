@@ -43,12 +43,15 @@ The MIT notice is retained. Keep the notice and this attribution whenever distri
 - Local repository: <https://github.com/RAHUL1115/pi-unified-subagents>
 - Consolidated snapshot: [`4b581fa99dc13f1a4295f2935cdf0205a0ab9443`](https://github.com/RAHUL1115/pi-unified-subagents/commit/4b581fa99dc13f1a4295f2935cdf0205a0ab9443)
 - Upstream repository: <https://github.com/tintinweb/pi-subagents>
-- Upstream baseline: `v0.18.0`, with later upstream commits included by the consolidation snapshot
+- Original upstream baseline: `92422a4bf3c3813e01e24c73fa14234dc4ce3b28` (`v0.18.0` plus four subsequent commits)
+- Upstream represented through: [`e955e29c51b7a6cce37e1108cd2d6c57a77e151c`](https://github.com/tintinweb/pi-subagents/commit/e955e29c51b7a6cce37e1108cd2d6c57a77e151c) (`v0.19.0` plus follow-up fixes), selectively ported rather than merged
+- Machine-readable update baseline: [`docs/unified-subagents/UPSTREAM.json`](docs/unified-subagents/UPSTREAM.json)
+- Port mapping and retained local behavior: [`docs/unified-subagents/upstream-v0.19-port.md`](docs/unified-subagents/upstream-v0.19-port.md)
 - Author/license: tintinweb and contributors, MIT
 - Local license copy: [`pi-toolkit-lib/LICENSE.pi-unified-subagents`](pi-toolkit-lib/LICENSE.pi-unified-subagents)
 - Retained documentation snapshot: [`docs/unified-subagents/README.md`](docs/unified-subagents/README.md)
 
-The source is retained as one internal module tree. Its tool names (`Agent`, `get_subagent_result`, and `steer_subagent`), `subagents:*` event/RPC names, `Symbol.for("pi-subagents:manager")` manager handle, `.pi/agents` and `.pi/subagents.json` conventions, child-session guard, output-transcript behavior, and persisted settings remain compatible. Pi Toolkit has since added local integration changes: a shared Tasks/Agents Activity view, permanent suppression of the legacy above-editor widget, task-detail return navigation, compact paired tool results, and unified conversation-viewer navigation. Git history records those post-snapshot changes.
+The source is retained as one internal module tree. Its tool names (`Agent`, `get_subagent_result`, and `steer_subagent`), `subagents:*` event/RPC names, `Symbol.for("pi-subagents:manager")` manager handle, `.pi/agents` and `.pi/subagents.json` conventions, child-session guard, output-transcript behavior, and persisted settings remain compatible. Pi Toolkit has since added local integration changes: a shared Tasks/Agents Activity view, permanent suppression of the legacy above-editor widget, task-detail return navigation, compact paired tool results, and unified conversation-viewer navigation. Git history records those post-snapshot changes. The v0.19 port adds Workflow orchestration, BOM-safe frontmatter, bounded Markdown previews, and foreground concurrency without replacing the local backend seam, Economy behavior, or shared Activity UI. Future upstream checks must compare from `UPSTREAM.json.importedThrough`, not from the historical standalone snapshot or the Toolkit package version.
 
 ## Historical influence not copied into this package
 

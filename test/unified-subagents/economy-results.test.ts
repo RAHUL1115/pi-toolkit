@@ -15,7 +15,7 @@ function setup() {
   const tools = new Map<string, any>();
   const events = new Map<string, any[]>();
   const pi = {
-    registerMessageRenderer: vi.fn(), registerTool: (t: any) => tools.set(t.name, t), registerCommand: vi.fn(),
+    registerMessageRenderer: vi.fn(), registerEntryRenderer: vi.fn(), registerFlag: vi.fn(), getFlag: vi.fn(), registerTool: (t: any) => tools.set(t.name, t), registerCommand: vi.fn(),
     on: (n: string, h: any) => events.set(n, [...(events.get(n) ?? []), h]),
     events: { emit: vi.fn(), on: vi.fn(() => vi.fn()) }, appendEntry: vi.fn(), sendMessage: vi.fn(),
   } as any;

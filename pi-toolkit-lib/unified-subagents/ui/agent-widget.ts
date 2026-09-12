@@ -7,7 +7,7 @@
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { renderAgentName } from "../agent-color.js";
-import type { AgentManager } from "../agent-manager.js";
+import { type AgentManager, isTopLevelAgent } from "../agent-manager.js";
 import { getConfig } from "../agent-types.js";
 import type { SubagentSession } from "../backend.js";
 import type { AgentInvocation, SubagentType, WidgetMode } from "../types.js";
@@ -306,7 +306,7 @@ export class AgentWidget {
    *   - `all`: every agent.
    */
   private widgetAgents() {
-    const all = this.manager.listAgents().filter(a => !a.parentAgentId);
+    const all = this.manager.listAgents().filter(isTopLevelAgent);
     switch (this.mode()) {
       case "off": return [];
       case "background": return all.filter(a => a.isBackground !== false);

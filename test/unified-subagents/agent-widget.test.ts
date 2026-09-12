@@ -82,7 +82,10 @@ describe("AgentWidget", () => {
     };
   }
 
-  function makeRecord(id: string, opts: { isBackground?: boolean; parentAgentId?: string } = {}) {
+  function makeRecord(
+    id: string,
+    opts: { isBackground?: boolean; parentAgentId?: string; workflowId?: string } = {},
+  ) {
     return {
       id,
       type: "general-purpose",
@@ -95,6 +98,7 @@ describe("AgentWidget", () => {
       invocation: { modelName: "sonnet 4.6", modelId: "anthropic/claude-sonnet-4-6", thinking: "high" },
       isBackground: opts.isBackground,
       parentAgentId: opts.parentAgentId,
+      workflowId: opts.workflowId,
     };
   }
 
@@ -132,6 +136,13 @@ describe("AgentWidget", () => {
     };
     expect(renderLines(manager, "nested", () => "all")).toBe("");
     expect(renderLines(manager, "nested", () => "background")).toBe("");
+  });
+
+  it("hides workflow-owned children; their workflow has the shared Activity row", () => {
+    const manager = {
+      listAgents: () => [makeRecord("child", { isBackground: true, workflowId: "wf-1" })],
+    };
+    expect(renderLines(manager, "child", () => "all")).toBe("");
   });
 
   it("excludes foreground agents in 'background' mode", () => {

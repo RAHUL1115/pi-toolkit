@@ -16,8 +16,8 @@ import {
   sanitizeTaskLabel,
 } from "../../background-task-viewer.js";
 import { hasAgentBadge, renderAgentName } from "../agent-color.js";
-import type { AgentManager } from "../agent-manager.js";
-import type { AgentRecord } from "../types.js";
+import { type AgentManager, isTopLevelAgent } from "../agent-manager.js";
+import type { AgentRecord, ViewerMarkdownMode } from "../types.js";
 import { getLifetimeCost, getLifetimeTotal, getSessionContextPercent } from "../usage.js";
 import {
   type AgentActivity,
@@ -37,6 +37,20 @@ const TICK_MS = 1000;
 type ActivityTab = "tasks" | "agents";
 type FocusLevel = "tabs" | "rows";
 type ActivityTheme = Theme & { bg(color: string, text: string): string };
+
+/** Narrow workflow shape injected by the registrar; FleetList stays runtime-agnostic. */
+export interface FleetWorkflow {
+  id: string;
+  name: string;
+  status: "running" | "completed" | "failed" | "killed" | "paused";
+  doneCount: number;
+  totalCount: number;
+  startedAt: number;
+  completedAt?: number;
+  tokens: number;
+}
+
+type AgentRow = { kind: "agent"; record: AgentRecord } | { kind: "workflow"; workflow: FleetWorkflow };
 
 /** Minimal UI surface the activity list needs from `ctx.ui` (structural subset). */
 export type FleetUICtx = {
@@ -93,12 +107,18 @@ export class FleetList {
   private selectedTab: ActivityTab = "agents";
   private selectedIndex: Record<ActivityTab, number> = { tasks: 0, agents: 0 };
   private viewerClose: (() => void) | undefined;
+  private viewingWorkflowId: string | undefined;
+  private viewerOrigin: { tab: ActivityTab; index: number } | undefined;
+  private workflowSource: (() => readonly FleetWorkflow[]) | undefined;
+  private openWorkflow: ((id: string) => Promise<void> | void) | undefined;
 
   constructor(
     private manager: AgentManager,
     private agentActivity: Map<string, AgentActivity>,
     private showCost: () => boolean = () => false,
     private tasks?: BackgroundTaskController,
+    private viewerMarkdown?: () => ViewerMarkdownMode,
+    private onViewerMarkdown?: (mode: ViewerMarkdownMode) => void,
   ) {
     this.taskUnsub = tasks?.onList?.(() => this.update());
   }
@@ -136,6 +156,8 @@ export class FleetList {
     this.taskUnsub?.();
     this.taskUnsub = undefined;
     if (this.viewerClose) { this.viewerClose(); this.viewerClose = undefined; }
+    this.viewingWorkflowId = undefined;
+    this.viewerOrigin = undefined;
     if (this.ui && this.widgetRegistered) this.ui.setWidget(FLEET_KEY, undefined);
     this.widgetRegistered = false;
     this.tui = undefined;
@@ -180,8 +202,32 @@ export class FleetList {
 
   private agentRecords(): AgentRecord[] {
     return this.manager.listAgents()
-      .filter(a => !a.parentAgentId && (a.status === "running" || a.status === "queued"))
+      .filter(a => isTopLevelAgent(a) && (a.status === "running" || a.status === "queued"))
       .sort((a, b) => a.startedAt - b.startedAt);
+  }
+
+  /** Inject workflow rows into the Agents tab without coupling this view to the workflow runtime. */
+  setWorkflowSource(
+    source: () => readonly FleetWorkflow[],
+    open: (id: string) => Promise<void> | void,
+  ): void {
+    this.workflowSource = source;
+    this.openWorkflow = open;
+    this.update();
+  }
+
+  private workflows(): FleetWorkflow[] {
+    if (!this.workflowSource) return [];
+    return [...this.workflowSource()]
+      .filter(run => run.status === "running" || run.status === "paused")
+      .sort((a, b) => a.startedAt - b.startedAt);
+  }
+
+  private agentRows(): AgentRow[] {
+    return [
+      ...this.workflows().map(workflow => ({ kind: "workflow" as const, workflow })),
+      ...this.agentRecords().map(record => ({ kind: "agent" as const, record })),
+    ];
   }
 
   private taskRecords(): BackgroundTaskItem[] {
@@ -191,12 +237,12 @@ export class FleetList {
   private availableTabs(): ActivityTab[] {
     const tabs: ActivityTab[] = [];
     if (this.taskRecords().length > 0) tabs.push("tasks");
-    if (this.agentRecords().length > 0) tabs.push("agents");
+    if (this.agentRows().length > 0) tabs.push("agents");
     return tabs;
   }
 
-  private rows(tab = this.selectedTab): Array<BackgroundTaskItem | AgentRecord> {
-    return tab === "tasks" ? this.taskRecords() : this.agentRecords();
+  private rows(tab = this.selectedTab): Array<BackgroundTaskItem | AgentRow> {
+    return tab === "tasks" ? this.taskRecords() : this.agentRows();
   }
 
   private normalizeSelection(tabs = this.availableTabs()): void {
@@ -212,7 +258,7 @@ export class FleetList {
   // ---- Key handling ----
 
   handleKey(data: string): { consume?: boolean; data?: string } | undefined {
-    if (!this.ui || isKeyRelease(data) || this.viewerClose) return undefined;
+    if (!this.ui || isKeyRelease(data) || this.viewerClose || this.viewingWorkflowId) return undefined;
     if (!this.editorHasFocus()) {
       if (this.focus) this.deactivate();
       return undefined;
@@ -307,8 +353,21 @@ export class FleetList {
   private openSelected(): void {
     const selected = this.rows()[this.selectedIndex[this.selectedTab]];
     if (!selected || !this.ui) return;
-    if (this.selectedTab === "tasks") this.openTask(selected as BackgroundTaskItem);
-    else this.openAgent(selected as AgentRecord);
+    this.viewerOrigin = { tab: this.selectedTab, index: this.selectedIndex[this.selectedTab] };
+    if (this.selectedTab === "tasks") {
+      this.openTask(selected as BackgroundTaskItem);
+      return;
+    }
+    const row = selected as AgentRow;
+    if (row.kind === "workflow") {
+      this.viewingWorkflowId = row.workflow.id;
+      void Promise.resolve(this.openWorkflow?.(row.workflow.id)).then(
+        () => this.clearViewer(),
+        () => this.clearViewer(),
+      );
+    } else {
+      this.openAgent(row.record);
+    }
   }
 
   private openTask(task: BackgroundTaskItem): void {
@@ -344,6 +403,8 @@ export class FleetList {
           keybindings,
           (message: string) => this.manager.steer(record.id, message),
           this.showCost(),
+          this.viewerMarkdown,
+          this.onViewerMarkdown,
         );
       },
       { overlay: true, overlayOptions: CONVERSATION_OVERLAY_OPTIONS },
@@ -352,7 +413,14 @@ export class FleetList {
 
   private clearViewer(): void {
     this.viewerClose = undefined;
-    this.focus = this.availableTabs().length > 0 ? "rows" : undefined;
+    this.viewingWorkflowId = undefined;
+    const tabs = this.availableTabs();
+    if (this.viewerOrigin && tabs.includes(this.viewerOrigin.tab)) {
+      this.selectedTab = this.viewerOrigin.tab;
+      this.selectedIndex[this.selectedTab] = this.viewerOrigin.index;
+    }
+    this.viewerOrigin = undefined;
+    this.focus = tabs.length > 0 ? "rows" : undefined;
     this.update();
   }
 
@@ -405,16 +473,32 @@ export class FleetList {
   }
 
   private renderAgents(width: number, theme: ActivityTheme): string[] {
-    const agents = this.agentRecords();
+    const rows = this.agentRows();
     const selected = this.focus === "rows" ? this.selectedIndex.agents : -1;
-    const { start, visible, hiddenBelow } = this.window(agents.length, selected);
+    const { start, visible, hiddenBelow } = this.window(rows.length, selected);
     const lines: string[] = [];
     if (start > 0) lines.push(rightAlign("", theme.fg("dim", `↑ ${start} more`), width));
     for (let index = start; index < start + visible; index++) {
-      lines.push(this.renderAgentRow(index, selected, agents[index], width, theme));
+      const row = rows[index];
+      lines.push(row.kind === "workflow"
+        ? this.renderWorkflowRow(index, selected, row.workflow, width, theme)
+        : this.renderAgentRow(index, selected, row.record, width, theme));
     }
     if (hiddenBelow > 0) lines.push(rightAlign("", theme.fg("dim", `↓ ${hiddenBelow} more`), width));
     return lines;
+  }
+
+  private renderWorkflowRow(index: number, selected: number, workflow: FleetWorkflow, width: number, theme: ActivityTheme): string {
+    const isSelected = index === selected;
+    const marker = isSelected ? theme.fg("accent", "●") : theme.fg("dim", "○");
+    const kind = theme.fg(isSelected ? "text" : "muted", "workflow");
+    const safeName = sanitizeTaskLabel(workflow.name) || workflow.id;
+    const name = isSelected ? theme.fg("text", safeName) : safeName;
+    const left = `  ${marker} ${kind}  ${name}`;
+    const elapsed = (workflow.completedAt ?? Date.now()) - workflow.startedAt;
+    const agents = `${workflow.doneCount}/${workflow.totalCount} agent${workflow.totalCount === 1 ? "" : "s"}`;
+    const stats = `${agents} · ${formatFleetElapsed(elapsed)} · ${formatFleetTokens(workflow.tokens)}`;
+    return rightAlign(left, isSelected ? theme.fg("text", stats) : theme.fg("dim", stats), width);
   }
 
   private window(total: number, selected: number): { start: number; visible: number; hiddenBelow: number } {

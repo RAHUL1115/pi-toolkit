@@ -9,6 +9,9 @@
  *   error   → { success: false, error: string }
  */
 
+import { isTopLevelAgent } from "./agent-manager.js";
+import type { AgentRecord } from "./types.js";
+
 /** Minimal event bus interface needed by the RPC handlers. */
 export interface EventBus {
   on(event: string, handler: (data: unknown) => void): () => void;
@@ -26,7 +29,10 @@ export const PROTOCOL_VERSION = 2;
 /** Minimal AgentManager interface needed by the spawn/stop/consume RPCs. */
 export interface SpawnCapable {
   spawn(pi: unknown, ctx: unknown, type: string, prompt: string, options: any): string;
+  /** Resolves once startup completes; rejects when setup such as worktree creation fails. */
+  awaitStartup(id: string): Promise<void>;
   abort(id: string): boolean;
+  getRecord(id: string): Pick<AgentRecord, "parentAgentId" | "workflowId"> | undefined;
   /**
    * Mark a settled agent's result as read by the caller, suppressing the
    * completion notification — what `get_subagent_result` does when it returns
@@ -85,20 +91,25 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
   });
 
   const unsubSpawn = handleRpc<{ requestId: string; type: string; prompt: string; options?: any }>(
-    events, "subagents:rpc:spawn", ({ type, prompt, options }) => {
+    events, "subagents:rpc:spawn", async ({ type, prompt, options }) => {
       const ctx = getCtx();
       if (!ctx) throw new Error("No active session");
 
       // Harness-aware model/config normalization lives at the authoritative
       // top-level spawn boundary. Native model IDs must never enter Pi's model
       // registry, and custom-agent frontmatter may override the caller harness.
-      return { id: manager.spawn(pi, ctx, type, prompt, options ?? {}) };
+      const id = manager.spawn(pi, ctx, type, prompt, options ?? {});
+      await manager.awaitStartup(id);
+      return { id };
     },
   );
 
   const unsubStop = handleRpc<{ requestId: string; agentId: string }>(
     events, "subagents:rpc:stop", ({ agentId }) => {
-      if (!manager.abort(agentId)) throw new Error("Agent not found");
+      const record = manager.getRecord(agentId);
+      if (!record) throw new Error("Agent not found");
+      if (!isTopLevelAgent(record)) throw new Error("Agent is owned by another agent or workflow");
+      if (!manager.abort(agentId)) throw new Error("Agent is not running");
     },
   );
 

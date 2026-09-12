@@ -22,7 +22,7 @@ vi.mock("../../pi-toolkit-lib/unified-subagents/agent-runner.js", () => ({
 vi.mock("../../pi-toolkit-lib/unified-subagents/worktree.js", () => ({
   createWorktree: vi.fn(),
   cleanupWorktree: vi.fn(() => ({ hasChanges: false })),
-  pruneWorktrees: vi.fn(),
+  pruneWorktrees: vi.fn(async () => {}),
   isWorktreeIsolationEnabled: vi.fn(() => true),
 }));
 
@@ -114,7 +114,7 @@ describe("child session shutdown (#242)", () => {
     await spawnCompleted(manager, session);
 
     vi.useFakeTimers();
-    const disposed = manager.dispose();
+    const disposed = manager.dispose(mockPi);
     // Past the internal ceiling. Without it the TUI is already torn down and the
     // user is left at a dead terminal with only Ctrl-C.
     await vi.advanceTimersByTimeAsync(5_000);
@@ -123,6 +123,44 @@ describe("child session shutdown (#242)", () => {
     expect(session.dispose).toHaveBeenCalledOnce();
     // Teardown continues past the timeout rather than unwinding.
     expect(pruneWorktrees).toHaveBeenCalled();
+  });
+
+  it("waits for Git pruning before returning control of the working directory", async () => {
+    manager = new AgentManager();
+    let finishPrune!: () => void;
+    vi.mocked(pruneWorktrees).mockImplementationOnce(() => new Promise<void>(resolve => {
+      finishPrune = resolve;
+    }));
+    let settled = false;
+    const disposed = manager.dispose(mockPi).then(() => { settled = true; });
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(pruneWorktrees).toHaveBeenCalledWith(mockPi, process.cwd());
+    expect(settled).toBe(false);
+    finishPrune();
+    await disposed;
+    expect(settled).toBe(true);
+  });
+
+  it.each([false, true])("releases disposed pool accounting for a replacement session (foreground=%s)", async (foreground) => {
+    manager = new AgentManager();
+    manager.setMaxConcurrent(1);
+    manager.setMaxConcurrentForeground(1);
+    const completions: Array<(value: any) => void> = [];
+    vi.mocked(runAgent).mockImplementation(() => new Promise(resolve => { completions.push(resolve); }));
+    const options = { description: "session child", isBackground: !foreground, blocking: foreground };
+    const old = manager.spawn(mockPi, mockCtx, "general-purpose", "old", options);
+    await manager.awaitStartup(old);
+    const oldCompletion = manager.getRecord(old)!.promise;
+    manager.abortAll();
+    await manager.dispose();
+
+    const fresh = manager.spawn(mockPi, mockCtx, "general-purpose", "new", options);
+    expect(manager.getRecord(fresh)?.status).toBe("running");
+    const queued = manager.spawn(mockPi, mockCtx, "general-purpose", "queued", options);
+    expect(manager.getRecord(queued)?.status).toBe("queued");
+    completions[0]({ responseText: "late old result", aborted: true, steered: false });
+    await oldCompletion;
+    expect(manager.getRecord(queued)?.status).toBe("queued");
   });
 
   it("skips the emit when no extension handles session_shutdown", async () => {

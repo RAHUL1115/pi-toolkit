@@ -8,7 +8,8 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 |---|---|
 | Tool rendering | Groups consecutive built-in tool calls with collapsed, preview, and expanded layouts |
 | Background tasks | Adds Claude Code-style background execution, `Ctrl+B` detachment, completion notifications, and a `/tasks` manager |
-| Unified subagents | Runs Pi, Claude Code, and Codex subagents through one `Agent` tool, shared FleetView, steering, results, schedules, and transcripts |
+| Unified subagents | Runs Pi, Claude Code, Codex, and Agy subagents through one `Agent` tool, shared Activity view, steering, results, schedules, and transcripts |
+| Subagent workflows | Deterministic script orchestration with checkpoints, structured output, validation gates, and a workflow inspector |
 | Transcript | Adds Codex-style activity markers to user, assistant, thinking, and tool content |
 | Session titles | Refreshes the session name after each turn using an available lightweight model |
 | Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
@@ -164,11 +165,17 @@ The shared activity surface appears only while background tasks are running or t
 
 ## Unified subagents
 
-The toolkit's sole extension entrypoint privately registers the unified-subagent module. It preserves the established `Agent`, `get_subagent_result`, and `steer_subagent` tools, `/agents` UI, FleetView, schedules, child-session protection, persisted transcripts, output files, and `subagents:*` extension interfaces. The `Agent` tool selects a Pi, Claude Code, or Codex harness through its `harness` argument or agent frontmatter.
+The toolkit's sole extension entrypoint privately registers the unified-subagent module. It preserves the established `Agent`, `get_subagent_result`, and `steer_subagent` tools, `/agents` UI, FleetView, schedules, child-session protection, persisted transcripts, output files, and `subagents:*` extension interfaces. The `Agent` tool selects a Pi, Claude Code, Codex, or Agy harness through its `harness` argument or agent frontmatter.
 
 An unqualified fresh `Agent` call starts in the foreground and automatically moves to the background after 300 seconds if still running. `run_in_background: true` detaches immediately; `false` keeps the call foreground until completion. `Ctrl+B` can detach a foreground run sooner.
 
 FleetView now provides the shared live activity surface: the legacy `Agents` widget above the editor is always suppressed, while the below-editor tabs combine running tasks with running/queued agents without showing completed items. Agent rows show tool uses, turn/token/context usage, elapsed time, and current activity; task rows show their title, ID, and elapsed time. Disabling FleetView hides the shared surface rather than restoring the legacy widget. Final `Agent` tool results and session records remain unchanged. The full-screen conversation viewer pairs calls with compact status rows, keeps failures visible, and uses Pi's `app.tools.expand` action (`Ctrl+O` by default) to toggle successful result details. It caches finalized transcript history, rebuilds only the streaming tail, and coalesces delta paints so long sessions stay responsive without changing compaction behavior. Line/page scrolling honors configured `tui.select.*` bindings, with `K`/`J` and Shift+Up/Down retained as aliases. Home/Ctrl+Home/Alt+Up jump to the top; End/Ctrl+End/Alt+Down jump to the bottom. `Ctrl+O` follows `app.tools.expand`, and Esc/Ctrl+C/`q` closes. Zed intercepts Shift+Up/Down for terminal scrollback by default, so its terminal keymap must send those sequences to Pi; see the Zed note in the full guide.
+
+The v0.19 upstream integration adds [`SubagentWorkflow`](docs/unified-subagents/docs/workflows.md): saved or generated JavaScript can coordinate agents, validate structured results, run test gates, and replay an unchanged journal prefix. Workflow rows live in the existing Agents Activity tab; `/agents → Workflows` opens their inspector. Agent-file harness/model policy still applies, and unsupported native-harness schema/resume requests fail explicitly. Workflows default to auto-enabled, standing down when a foreign `Workflow`, `workflow`, or `SubagentWorkflow` tool exists.
+
+The viewer renders assistant Markdown by default; `m` cycles `off / assistant / all`, persisted as `viewerMarkdown`. Expanded tool results are bounded at 16,000 characters, without changing stored transcripts. `maxConcurrentForeground` adds an optional independent blocking-agent limit (`0` means unlimited); auto-detachment still moves the same live child into background accounting. BOM-prefixed agent files are parsed correctly.
+
+Pi `>=0.84.0` is required. The exact upstream update baseline is tracked in [`docs/unified-subagents/UPSTREAM.json`](docs/unified-subagents/UPSTREAM.json); see the [port record](docs/unified-subagents/upstream-v0.19-port.md) before the next upstream comparison.
 
 Project agent definitions remain in `.pi/agents/*.md`; project settings remain in `.pi/subagents.json`, with global settings under Pi's normal agent directory. Existing identifiers and persisted data formats are unchanged by the consolidation.
 

@@ -202,15 +202,86 @@ describe("FleetList navigation", () => {
     expect(h.render()).toEqual([]);
   });
 
-  it("hides nested child records from the coordinator fleet", () => {
+  it("hides nested and workflow-owned child records from the coordinator fleet", () => {
     const h = harness([
       makeRecord({ id: "top", description: "top-level" }),
       makeRecord({ id: "nested", description: "nested-child", parentAgentId: "top" }),
+      makeRecord({ id: "workflow-child", description: "workflow-child", workflowId: "wf-1" }),
     ]);
     enterRows(h);
     const output = h.render().join("\n");
     expect(output).toContain("top-level");
     expect(output).not.toContain("nested-child");
+    expect(output).not.toContain("workflow-child");
+  });
+
+  it("shows active workflow rows in the shared Agents tab and opens the injected inspector", async () => {
+    const h = harness([]);
+    const open = vi.fn();
+    h.fleet.setWorkflowSource(() => [{
+      id: "wf-1", name: "Verify integration", status: "running",
+      doneCount: 2, totalCount: 4, startedAt: Date.now() - 5000, tokens: 1200,
+    }], open);
+
+    enterRows(h);
+    const output = h.render(200).join("\n");
+    expect(output).toContain("Agents 1");
+    expect(output).toContain("workflow");
+    expect(output).toContain("Verify integration");
+    expect(output).toContain("2/4 agents");
+    expect(output).toContain("↓ 1.2k tokens");
+
+    h.press(ENTER);
+    expect(open).toHaveBeenCalledWith("wf-1");
+    await Promise.resolve();
+  });
+
+  it("keeps Activity active-only and sanitizes workflow labels", () => {
+    const h = harness([]);
+    h.fleet.setWorkflowSource(() => [
+      {
+        id: "wf-done", name: "completed", status: "completed",
+        doneCount: 1, totalCount: 1, startedAt: 1, completedAt: Date.now(), tokens: 10,
+      },
+      {
+        id: "wf-live", name: "\x1b[31mUnsafe\x1b[0m\u202e\nname", status: "paused",
+        doneCount: 0, totalCount: 1, startedAt: Date.now(), tokens: 0,
+      },
+    ], vi.fn());
+
+    enterRows(h);
+    const output = h.render(200).join("\n");
+    expect(output).not.toContain("completed");
+    expect(output).toContain("Unsafe name");
+    expect(output).not.toContain("\x1b");
+    expect(output).not.toContain("\u202e");
+  });
+
+  it("returns to the originating Agents tab and row after a workflow inspector", async () => {
+    const h = harness([makeRecord({ description: "ordinary agent" })], new Map(), [makeTask()]);
+    let workflows = [{
+      id: "wf-1", name: "workflow row", status: "running" as const,
+      doneCount: 0, totalCount: 1, startedAt: Date.now(), tokens: 0,
+    }];
+    let closeInspector!: () => void;
+    const open = vi.fn(() => new Promise<void>(resolve => { closeInspector = resolve; }));
+    h.fleet.setWorkflowSource(() => workflows, open);
+
+    enterRows(h); // Agents tab, workflow row
+    h.press(ENTER);
+    workflows = []; // a timer refresh temporarily leaves only Tasks
+    h.fleet.update();
+    workflows = [{
+      id: "wf-1", name: "workflow row", status: "running" as const,
+      doneCount: 0, totalCount: 1, startedAt: Date.now(), tokens: 0,
+    }];
+    closeInspector();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const output = h.render(240).join("\n");
+    expect(output).toContain("<selectedBg>*<text> Agents 2 </text>");
+    expect(h.render(240).find(line => line.includes("workflow row"))).toContain("●");
   });
 
   it("focuses tabs first and expands rows on a second ↓ even with one category", () => {

@@ -770,18 +770,18 @@ describe("AgentManager — isolation: worktree fails loud, no silent fallback", 
     manager?.dispose();
   });
 
-  it("spawn() throws when createWorktree returns undefined; no orphan record left behind", async () => {
+  it("awaitStartup rejects when createWorktree returns undefined; no orphan record remains", async () => {
     const { createWorktree } = await import("../../pi-toolkit-lib/unified-subagents/worktree.js");
-    vi.mocked(createWorktree).mockReturnValueOnce(undefined);
+    vi.mocked(createWorktree).mockResolvedValueOnce(undefined);
     vi.mocked(runAgent).mockClear();
 
     manager = new AgentManager();
-    expect(() => manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
+    const id = manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
       description: "test",
       isolation: "worktree",
-    })).toThrow(/isolation: "worktree"/);
+    });
+    await expect(manager.awaitStartup(id)).rejects.toThrow(/isolation: "worktree"/);
 
-    // Cleaned up — no orphan in listAgents()
     expect(manager.listAgents()).toEqual([]);
     // runAgent never invoked — strict, no silent fallback
     expect(runAgent).not.toHaveBeenCalled();
@@ -817,14 +817,15 @@ describe("AgentManager — worktreeIsolation: false refuses worktrees", () => {
 
   it("does not mask a genuine worktree failure while enabled", async () => {
     const { createWorktree } = await import("../../pi-toolkit-lib/unified-subagents/worktree.js");
-    vi.mocked(createWorktree).mockReturnValueOnce(undefined);
+    vi.mocked(createWorktree).mockResolvedValueOnce(undefined);
     vi.mocked(isWorktreeIsolationEnabled).mockReturnValue(true);
 
     manager = new AgentManager();
-    expect(() => manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
+    const id = manager.spawn(mockPi, mockCtx, "general-purpose", "test", {
       description: "test",
       isolation: "worktree",
-    })).toThrow(/isolation: "worktree"/);
+    });
+    await expect(manager.awaitStartup(id)).rejects.toThrow(/isolation: "worktree"/);
   });
 });
 
@@ -880,7 +881,8 @@ describe("AgentManager — SpawnOptions.cwd passthrough (#96)", () => {
 
   it("cwd + isolation: worktree — worktree created FROM cwd, session runs at the copy's workPath, cleanup targets cwd's repo", async () => {
     const { createWorktree, cleanupWorktree } = await import("../../pi-toolkit-lib/unified-subagents/worktree.js");
-    vi.mocked(createWorktree).mockReturnValueOnce({
+    vi.mocked(createWorktree).mockClear();
+    vi.mocked(createWorktree).mockResolvedValueOnce({
       path: "/wt/copy", branch: "pi-agent-x", baseSha: "abc", workPath: "/wt/copy/packages/api",
     });
     resolvedRun();
@@ -891,16 +893,17 @@ describe("AgentManager — SpawnOptions.cwd passthrough (#96)", () => {
       cwd: "/",
       isolation: "worktree",
     });
+    await manager.awaitStartup(id);
     await manager.getRecord(id)!.promise;
 
-    expect(createWorktree).toHaveBeenCalledWith("/", id);
+    expect(createWorktree).toHaveBeenCalledWith(mockPi, "/", id);
     // Worktree wins for the working dir — at workPath, so subdirectory scoping
     // survives isolation. Config still anchored to the parent.
     expect(runAgent).toHaveBeenCalledWith(
       mockCtx, "general-purpose", "test",
       expect.objectContaining({ cwd: "/wt/copy/packages/api", configCwd: "/tmp", worktreeBase: "/" }),
     );
-    expect(cleanupWorktree).toHaveBeenCalledWith("/", expect.anything(), "test");
+    expect(cleanupWorktree).toHaveBeenCalledWith(mockPi, "/", expect.anything(), "test");
   });
 
   it("plain worktree (no cwd) keeps the historical root working dir even when workPath differs", async () => {

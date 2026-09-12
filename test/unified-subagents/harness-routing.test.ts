@@ -75,6 +75,9 @@ function makePi() {
   const lifecycle = new Map<string, LifecycleHandler>();
   const pi = {
     registerMessageRenderer: vi.fn(),
+    registerEntryRenderer: vi.fn(),
+    registerFlag: vi.fn(),
+    getFlag: vi.fn(),
     registerTool: vi.fn((tool: unknown) => {
       const registered = tool as RegisteredTool;
       tools.set(registered.name, registered);
@@ -538,7 +541,8 @@ describe("Agent tool harness routing", () => {
       custom: vi.fn(async (factory: SettingsFactory) => {
         const component = factory({}, {}, {}, () => {});
         rendered = component.render(160).join("\n");
-        for (let i = 0; i < 4; i++) component.handleInput?.("\x1b[B");
+        // maxConcurrentForeground adds one numeric row before the Light settings.
+        for (let i = 0; i < 5; i++) component.handleInput?.("\x1b[B");
         component.handleInput?.("\r");
         component.handleInput?.("\x1b[B");
         component.handleInput?.("\r");

@@ -6,6 +6,7 @@ import { codexBackend } from "./backends/codex.js";
 import { piBackend } from "./backends/pi.js";
 import type { AgentConfig, AgentHarness, EffectiveThinkingLevel } from "./types.js";
 import type { LifetimeUsage } from "./usage.js";
+import type { CompiledSchema } from "./workflow/json-schema.js";
 
 /** The Pi-compatible session surface used outside backend runners. */
 export interface SubagentSession {
@@ -54,6 +55,10 @@ export interface BackendRunOptions {
   resumeSessionFile?: string;
   /** Nested Pi run; native backends ignore this marker. */
   nested?: boolean;
+  /** Workflow-spawned child; Pi uses this to shape the return-value prompt. */
+  workflow?: boolean;
+  /** Compiled structured-output schema. Only the Pi backend supports it. */
+  structuredOutput?: CompiledSchema;
   onToolActivity?: (activity: ToolActivity) => void;
   onTextDelta?: (delta: string, fullText: string) => void;
   onSessionCreated?: (session: SubagentSession) => void;
@@ -73,6 +78,10 @@ export interface BackendRunResult {
   aborted: boolean;
   steered: boolean;
   failure?: string;
+  /** Canonical validated JSON returned through StructuredOutput. */
+  structuredJson?: string;
+  /** Whether Pi had to send the one allowed structured-output retry prompt. */
+  structuredRetried?: boolean;
 }
 
 export interface BackendResumeOptions {

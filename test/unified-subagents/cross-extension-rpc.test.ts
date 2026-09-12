@@ -26,7 +26,9 @@ describe("cross-extension RPC", () => {
     events = createEventBus();
     manager = {
       spawn: vi.fn().mockReturnValue("agent-42"),
+      awaitStartup: vi.fn().mockResolvedValue(undefined),
       abort: vi.fn().mockReturnValue(true),
+      getRecord: vi.fn().mockReturnValue({}),
       consumeResult: vi.fn().mockReturnValue(true),
     };
     ctx = { session: true };
@@ -85,6 +87,7 @@ describe("cross-extension RPC", () => {
       expect(manager.spawn).toHaveBeenCalledWith(
         deps.pi, ctx, "general-purpose", "do stuff", {},
       );
+      expect(manager.awaitStartup).toHaveBeenCalledWith("agent-42");
     });
 
     it("passes options through to manager.spawn", async () => {
@@ -132,6 +135,25 @@ describe("cross-extension RPC", () => {
       expect(reply).toHaveBeenCalledWith({ success: false, error: "unknown agent type" });
     });
 
+    it("returns a startup failure instead of an id for an agent that never ran", async () => {
+      (manager.awaitStartup as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Cannot run with isolation: "worktree"'),
+      );
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:spawn:reply:req-startup", reply);
+      events.emit("subagents:rpc:spawn", {
+        requestId: "req-startup", type: "general-purpose", prompt: "x",
+        options: { isolation: "worktree" },
+      });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply).toHaveBeenCalledWith({
+        success: false, error: 'Cannot run with isolation: "worktree"',
+      });
+      expect(manager.awaitStartup).toHaveBeenCalledWith("agent-42");
+    });
+
     it("scopes replies — other requestIds do not receive it", async () => {
       registerRpcHandlers(deps);
       const wrongReply = vi.fn();
@@ -177,7 +199,7 @@ describe("cross-extension RPC", () => {
     });
 
     it("returns error when agent not found", async () => {
-      (manager.abort as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      (manager.getRecord as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
       registerRpcHandlers(deps);
       const reply = vi.fn();
       events.on("subagents:rpc:stop:reply:req-st2", reply);
@@ -185,6 +207,35 @@ describe("cross-extension RPC", () => {
 
       await vi.waitFor(() => expect(reply).toHaveBeenCalled());
       expect(reply).toHaveBeenCalledWith({ success: false, error: "Agent not found" });
+      expect(manager.abort).not.toHaveBeenCalled();
+    });
+
+    it("distinguishes an already-settled agent", async () => {
+      (manager.abort as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:stop:reply:req-st5", reply);
+      events.emit("subagents:rpc:stop", { requestId: "req-st5", agentId: "settled" });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply).toHaveBeenCalledWith({ success: false, error: "Agent is not running" });
+    });
+
+    it.each([
+      ["nested", { parentAgentId: "parent-1" }],
+      ["workflow", { workflowId: "wf-1" }],
+    ])("refuses to stop a %s-owned agent", async (_kind, record) => {
+      (manager.getRecord as ReturnType<typeof vi.fn>).mockReturnValue(record);
+      registerRpcHandlers(deps);
+      const reply = vi.fn();
+      events.on("subagents:rpc:stop:reply:req-owned", reply);
+      events.emit("subagents:rpc:stop", { requestId: "req-owned", agentId: "owned" });
+
+      await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+      expect(reply).toHaveBeenCalledWith({
+        success: false, error: "Agent is owned by another agent or workflow",
+      });
+      expect(manager.abort).not.toHaveBeenCalled();
     });
 
     it("scopes replies — other requestIds do not receive it", async () => {

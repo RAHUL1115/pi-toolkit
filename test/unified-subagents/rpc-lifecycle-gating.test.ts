@@ -36,6 +36,9 @@ function makePi() {
   const busHandlers = new Map<string, (raw: any) => unknown>(); // pi.events.on(...) — rpc channels
   const pi = {
     registerMessageRenderer: vi.fn(),
+    registerEntryRenderer: vi.fn(),
+    registerFlag: vi.fn(),
+    getFlag: vi.fn(),
     registerTool: vi.fn((t: any) => tools.set(t.name, t)),
     registerCommand: vi.fn(),
     on: vi.fn((event: string, handler: any) => lifecycle.set(event, handler)),

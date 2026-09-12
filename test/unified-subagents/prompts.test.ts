@@ -433,4 +433,48 @@ describe("buildAgentPrompt", () => {
       expect(prompt.indexOf("<worktree_isolation>")).toBeGreaterThan(prompt.indexOf("<sub_agent_context>"));
     });
   });
+
+  describe("workflow child block", () => {
+    function childConfig(promptMode: "append" | "replace"): AgentConfig {
+      return {
+        name: "test-agent",
+        description: "Test",
+        builtinToolNames: [],
+        extensions: true,
+        skills: true,
+        systemPrompt: "Custom instructions.",
+        promptMode,
+        inheritContext: false,
+        runInBackground: false,
+        isolated: false,
+      };
+    }
+
+    it("is absent for an ordinary subagent", () => {
+      for (const promptMode of ["replace", "append"] as const) {
+        expect(buildAgentPrompt(childConfig(promptMode), "/workspace", env, "Parent.", {}))
+          .not.toContain("<workflow_child>");
+      }
+    });
+
+    it("defines the machine-consumed return-value contract in both modes", () => {
+      for (const promptMode of ["replace", "append"] as const) {
+        const prompt = buildAgentPrompt(childConfig(promptMode), "/workspace", env, "Parent.", {
+          workflowChild: true,
+        });
+        expect(prompt).toContain("<workflow_child>");
+        expect(prompt).toContain("Your final message IS the return value");
+        expect(prompt).toContain("no preamble");
+        expect(prompt.indexOf("<workflow_child>")).toBeGreaterThan(prompt.indexOf("Working directory: /workspace"));
+      }
+    });
+
+    it("composes after worktree isolation", () => {
+      const prompt = buildAgentPrompt(childConfig("append"), "/wt/copy", env, "Parent.", {
+        worktreeBase: "/repo",
+        workflowChild: true,
+      });
+      expect(prompt.indexOf("<workflow_child>")).toBeGreaterThan(prompt.indexOf("<worktree_isolation>"));
+    });
+  });
 });

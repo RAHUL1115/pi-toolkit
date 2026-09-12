@@ -31,6 +31,9 @@ function makePi() {
   const events = new Map<string, any>(); // pi.events.on(...) — subagents:rpc:*, etc.
   const pi = {
     registerMessageRenderer: vi.fn(),
+    registerEntryRenderer: vi.fn(),
+    registerFlag: vi.fn(),
+    getFlag: vi.fn(),
     registerTool: vi.fn((t: any) => tools.set(t.name, t)),
     registerCommand: vi.fn(),
     on: vi.fn((event: string, handler: any) => lifecycle.set(event, handler)),

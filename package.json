@@ -20,7 +20,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check index.ts pi-toolkit-lib/ test/",
     "lint:fix": "biome check --fix index.ts pi-toolkit-lib/ test/",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "bench": "vitest bench --run",
+    "bench:ab": "node test/unified-subagents/perf/ab.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/codex-acp": "1.1.7",
@@ -44,9 +47,9 @@
     "vitest": "^4.0.18"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.81.0",
-    "@earendil-works/pi-coding-agent": ">=0.81.0",
-    "@earendil-works/pi-tui": ">=0.81.0"
+    "@earendil-works/pi-ai": ">=0.84.0",
+    "@earendil-works/pi-coding-agent": ">=0.84.0",
+    "@earendil-works/pi-tui": ">=0.84.0"
   },
   "pi": {
     "extensions": [

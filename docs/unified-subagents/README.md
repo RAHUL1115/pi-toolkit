@@ -1,10 +1,10 @@
 # pi-unified-subagents
 
-> Consolidation note: this is the imported guide for snapshot `4b581fa99dc13f1a4295f2935cdf0205a0ab9443`. The extension now ships inside Pi Toolkit through the toolkit's sole `./index.ts` entrypoint; standalone install commands below are retained only as source documentation.
+> Consolidation note: the original snapshot is `4b581fa99dc13f1a4295f2935cdf0205a0ab9443`; upstream is now selectively integrated through `e955e29c51b7a6cce37e1108cd2d6c57a77e151c` (v0.19.0 plus follow-ups). The extension ships inside Pi Toolkit through its sole `./index.ts` entrypoint. Standalone install commands below are historical. See [UPSTREAM.json](UPSTREAM.json) and the [port record](upstream-v0.19-port.md) for future comparisons. Pi >=0.84.0 is required.
 
 A standalone local [pi](https://pi.dev) extension that runs autonomous sub-agents through **pi, Claude Code, OpenAI Codex, or Antigravity CLI** behind one `Agent` tool and one shared UI. Spawn specialized agents with their own tools, system prompt, model, and thinking level; fresh calls start foreground and automatically background after five minutes, support mid-run steering and resume, and include custom agent types.
 
-This extension has its own `pi-unified-subagents@0.1.0` package identity. It is derived from [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) and tracks upstream through v0.18.0, under the MIT license, with a backend seam, Claude Agent SDK adapter, Codex ACP adapter, and Antigravity stream-JSON adapter. It intentionally retains the established `Agent` tool names, `subagents:*` event/RPC channels, `.pi/subagents.json` settings, and transcript paths for compatibility. Do not enable it simultaneously with upstream `@tintinweb/pi-subagents`: both register the same tools and UI.
+This extension has its own `pi-unified-subagents@0.1.0` package identity. It is derived from [`@tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) and incorporates upstream v0.19.0 plus follow-up fixes, under the MIT license, with a backend seam, Claude Agent SDK adapter, Codex ACP adapter, and Antigravity stream-JSON adapter. It intentionally retains the established `Agent` tool names, `subagents:*` event/RPC channels, `.pi/subagents.json` settings, and transcript paths for compatibility. Do not enable it simultaneously with upstream `@tintinweb/pi-subagents`: both register the same tools and UI.
 
 <img width="600" alt="unified subagents screenshot" src="media/screenshot.png" />
 
@@ -489,6 +489,20 @@ thinking: high
 ---
 ```
 
+### `SubagentWorkflow`
+
+Run deterministic JavaScript that coordinates subagents through `agent()`, `pipeline()`, `parallel()`, and one-level nested `workflow()`. Supply `script`, `scriptPath`, or a saved workflow `name`; `args` passes JSON input. Each script declares literal `export const meta = { name, description }`. Runs return a task ID immediately and notify on completion.
+
+Supports schema-validated output (Pi harness), test-command gates, pause/skip/retry/stop controls, and unchanged-prefix checkpoint replay with `resumeFromRunId`. Saved files resolve from `.pi/workflows/`, `.agents/workflows/`, then the agent directory's `workflows/`. Native harnesses use existing agent-file policy; unsupported schema/resume combinations fail explicitly.
+
+Open `/agents → Workflows` or a workflow row in the existing Agents Activity tab. Children appear inside the inspector, not as duplicate top-level rows. `c` opens a child's conversation and returns to the inspector when closed.
+
+See the [complete workflow guide](docs/workflows.md) and [executable examples](../../examples/workflows/).
+
+### CLI flags
+
+`pi --subagents-workflow-file=<path>` runs a workflow at session startup, including print mode. Use the `=` form. Startup-file runs do not support journal resume.
+
 ### `get_subagent_result`
 
 Check status and retrieve results from a background agent.
@@ -555,7 +569,7 @@ Instead of hard-aborting at the turn limit, agents get a graceful shutdown:
 
 Background agents are subject to a configurable concurrency limit (default: 10). Excess agents are automatically queued and start as running agents complete. Queued top-level agents appear in the Activity view's Agents count and list, subject to the same five-row window as running agents.
 
-Foreground agents bypass the queue while blocking the parent. An agent moved to the background automatically after 300 seconds or manually with `Ctrl+B` keeps running immediately and begins occupying a slot; if that temporarily exceeds the limit, new background spawns wait. Explicit immediate-background fan-outs use the default limit of 10.
+Blocking foreground agents have a separate optional `maxConcurrentForeground` limit (`0`, the default, means unlimited). Nested and workflow-owned children do not occupy either top-level pool; workflows have their own bounded concurrency. An agent moved to the background automatically after 300 seconds or manually with `Ctrl+B` keeps running immediately and begins occupying a background slot; if that temporarily exceeds the limit, new background spawns wait. Explicit immediate-background fan-outs retain the default limit of 10.
 
 ## Join Strategies
 
@@ -595,6 +609,12 @@ When on, each subagent spawn's effective model is validated against pi's own `en
 **No-op safety:** if `enabledModels` is missing or empty in pi's settings, scope check skips entirely — no false positives, no spurious errors.
 
 ## Persistent Settings
+
+New settings from the v0.19 integration:
+
+- `maxConcurrentForeground`: independent blocking-agent limit; `0` means unlimited.
+- `viewerMarkdown`: `off`, `assistant` (default), or `all`. The viewer's `m` key cycles and persists the same setting. Tool output stays literal by default; `all` also renders result Markdown. Expanded previews are bounded at 16,000 characters; transcripts remain intact.
+- `workflowsEnabled`: unset means auto-enabled unless another extension provides `Workflow`, `workflow`, or `SubagentWorkflow`. An explicit boolean pins the choice; tool registration changes take effect next session/reload.
 
 Runtime tuning values set via `/agents` → Settings — including concurrency, background default, turn limits, nesting, fallback, joins, scheduling, model scope, defaults, strict files, mentions, transcripts, worktrees, Light model/thinking, tool description, widget, usage/cost, and model display — persist across pi restarts in two merged files:
 
@@ -704,6 +724,8 @@ Agent lifecycle events are emitted via `pi.events.emit()` so other extensions ca
 `usage` answers the other question — what was billed — and so does include `cacheRead`, because the prefix really is re-read and re-charged on every call. It is a pi `Usage`, the same shape pi puts on `ToolResultEvent` and `AssistantMessage`, so `usage.cost.total` is where a listener already expects the money and anything pi adds to `Usage` arrives without a change here. Neither field derives from the other; `tokens` is a view model, `usage` is the data.
 
 ## Cross-Extension RPC
+
+The [Toolkit RPC guide](docs/rpc.md) documents shared harness/model resolution, workflow ownership boundaries, lifecycle gating, and result consumption. These local policies take precedence over historical upstream examples below.
 
 Other pi extensions can spawn and stop subagents programmatically via the `pi.events` event bus, without importing this package directly.
 

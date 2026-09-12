@@ -22,6 +22,7 @@ function makeMockManager() {
   const spawnFn = vi.fn(() => "agent-" + Math.random().toString(36).slice(2, 10));
   return {
     spawn: spawnFn,
+    awaitStartup: vi.fn(() => Promise.resolve()),
     getRecord: vi.fn(() => ({ promise: Promise.resolve("done") })),
   } as any;
 }

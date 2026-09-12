@@ -5,11 +5,12 @@
  * Subscribes to session events for real-time streaming updates.
  */
 
-import { type Component, Input, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { type Component, Input, Markdown, type MarkdownOptions, type MarkdownTheme, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { renderAgentName } from "../agent-color.js";
 import type { SubagentSession } from "../backend.js";
 import { extractText } from "../context.js";
-import type { AgentRecord } from "../types.js";
+import type { AgentRecord, ViewerMarkdownMode } from "../types.js";
 import { getLifetimeCost, getLifetimeTotal, getSessionContextPercent } from "../usage.js";
 import type { Theme } from "./agent-widget.js";
 import { type AgentActivity, buildInvocationTags, describeActivity, fgPreservingNestedStyles, formatCost, formatDuration, formatSessionTokens, getPromptModeLabel } from "./agent-widget.js";
@@ -20,6 +21,83 @@ const CHROME_LINES_BASE = 6;
 const TOOL_ARGUMENT_PREVIEW_MAX = 140;
 /** Coalesce streaming deltas into at most ~30 transcript paints per second. */
 const LIVE_RENDER_INTERVAL_MS = 33;
+/** Bound one displayed tool result or bash output without returning to the old 500-character cut. */
+export const RESULT_MAX_CHARS = 16_000;
+
+const MARKDOWN_MODES: readonly ViewerMarkdownMode[] = ["off", "assistant", "all"];
+const MARKDOWN_MODE_LABELS: Record<ViewerMarkdownMode, string> = {
+  off: "raw",
+  assistant: "md",
+  all: "md+",
+};
+const MARKDOWN_OPTIONS: MarkdownOptions = {
+  preserveOrderedListMarkers: true,
+  preserveBackslashEscapes: true,
+};
+
+function fallbackMarkdownTheme(th: Theme): MarkdownTheme {
+  const sgr = (on: number, off: number) => (text: string) => `\x1b[${on}m${text}\x1b[${off}m`;
+  return {
+    heading: text => th.bold(th.fg("accent", text)),
+    link: text => th.fg("accent", text),
+    linkUrl: text => th.fg("muted", text),
+    code: text => th.fg("muted", text),
+    codeBlock: text => th.fg("muted", text),
+    codeBlockBorder: text => th.fg("dim", text),
+    quote: text => th.fg("muted", text),
+    quoteBorder: text => th.fg("dim", text),
+    hr: text => th.fg("dim", text),
+    listBullet: text => th.fg("accent", text),
+    bold: text => th.bold(text),
+    italic: sgr(3, 23),
+    underline: sgr(4, 24),
+    strikethrough: sgr(9, 29),
+  };
+}
+
+/** Probe eagerly because pi's Markdown theme can otherwise fail lazily during render in tests/embedders. */
+function resolveMarkdownTheme(th: Theme): MarkdownTheme {
+  try {
+    const piTheme = getMarkdownTheme();
+    piTheme.heading("probe");
+    return piTheme;
+  } catch {
+    return fallbackMarkdownTheme(th);
+  }
+}
+
+function capResult(text: string): { text: string; elided: number } {
+  if (text.length <= RESULT_MAX_CHARS) return { text, elided: 0 };
+  return { text: text.slice(0, RESULT_MAX_CHARS), elided: text.length - RESULT_MAX_CHARS };
+}
+
+function humanCount(n: number): string {
+  if (n < 1_000) return `${n}`;
+  const thousands = n < 999_950;
+  const value = thousands ? n / 1_000 : n / 1_000_000;
+  return `${value.toFixed(1).replace(/\.0$/, "")}${thousands ? "k" : "M"}`;
+}
+
+function truncationNote(elided: number): string {
+  return `... (truncated, ${humanCount(elided)} more character${elided === 1 ? "" : "s"})`;
+}
+
+/** Cheap mutation snapshot for the live tail; string references catch streamed replacements without scanning their bytes. */
+function messageState(message: SubagentSession["messages"][number] | undefined): unknown[] {
+  if (!message) return [];
+  const msg = message as any;
+  const state: unknown[] = [message, msg.role, msg.content, msg.command, msg.output, msg.exitCode, msg.cancelled, msg.isError, msg.toolCallId, msg.toolUseId];
+  if (Array.isArray(msg.content)) {
+    for (const part of msg.content) {
+      state.push(part, part?.type, part?.text, part?.thinking, part?.redacted, part?.id, part?.toolUseId, part?.name, part?.toolName, part?.arguments);
+    }
+  }
+  return state;
+}
+
+function sameState(left: readonly unknown[], right: readonly unknown[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
 
 /** Full-terminal overlay shared by FleetView and `/agents` running-agent views. */
 export const CONVERSATION_OVERLAY_OPTIONS = {
@@ -63,11 +141,19 @@ export class ConversationViewer implements Component {
   private contentDirty = true;
   private cachedContentWidth = 0;
   private cachedContentLines: string[] = [];
+  private cachedMarkdownMode: ViewerMarkdownMode | undefined;
+  private cachedMessageCount = -1;
+  private cachedTailState: unknown[] = [];
   /** Finalized messages already rendered into stableContentLines. */
   private stableMessages: unknown[] = [];
   private stableToolResults: unknown[] = [];
+  private stableToolResultStates: unknown[][] = [];
   private stableContentLines: string[] = [];
   private stableHasContent = false;
+  private readonly markdownTheme: MarkdownTheme;
+  private markdownModeOverride: ViewerMarkdownMode | undefined;
+  /** One reusable Markdown component per message; compacted messages remain collectible. */
+  private markdownCache = new WeakMap<object, { md: Markdown; text: string; failed?: boolean }>();
 
   constructor(
     private tui: TUI,
@@ -88,7 +174,12 @@ export class ConversationViewer implements Component {
      * cannot change while it is on screen.
      */
     private showCost = false,
+    /** Live viewer setting; omitted defaults to assistant-only Markdown. */
+    private viewerMarkdown?: () => ViewerMarkdownMode,
+    /** Persist an `m`-selected mode; omitted keeps the cycle local to this viewer. */
+    private onMarkdownMode?: (mode: ViewerMarkdownMode) => void,
   ) {
+    this.markdownTheme = resolveMarkdownTheme(theme);
     this.keys = createViewerKeys(keybindings);
     this.unsubscribe = session.subscribe(() => {
       if (this.closed) return;
@@ -118,6 +209,16 @@ export class ConversationViewer implements Component {
 
     if (this.keys.toggleTools(data)) {
       this.toolsExpanded = !this.toolsExpanded;
+      this.resetContentCache();
+      this.tui.requestRender();
+      return;
+    }
+
+    if (matchesKey(data, "m")) {
+      this.stopArmed = false;
+      const next = MARKDOWN_MODES[(MARKDOWN_MODES.indexOf(this.markdownMode()) + 1) % MARKDOWN_MODES.length];
+      this.markdownModeOverride = next;
+      this.onMarkdownMode?.(next);
       this.resetContentCache();
       this.tui.requestRender();
       return;
@@ -230,7 +331,7 @@ export class ConversationViewer implements Component {
     if (invocationLine) lines.push(row(invocationLine));
     lines.push(hrMid);
 
-    // Content area — rebuild every render (live data, no cache needed)
+    // Reuse stable history and rebuild only content invalidated by live events.
     const contentLines = this.buildContentLines(innerW);
     const viewportHeight = this.viewportHeight();
     const maxScroll = Math.max(0, contentLines.length - viewportHeight);
@@ -260,12 +361,13 @@ export class ConversationViewer implements Component {
       // full key list so the less-obvious bindings stay discoverable; it leads
       // the right group so "Esc close" is the only part that truncates first.
       const sep = th.fg("dim", " · ");
-      const actions: string[] = [th.fg("dim", `Ctrl+O ${this.toolsExpanded ? "collapse" : "expand"} tools`)];
+      const actions: string[] = [th.fg("dim", `Ctrl+O ${this.toolsExpanded ? "collapse" : "tools"}`)];
       if (this.canSteer()) actions.push(th.fg("dim", "Enter steer"));
       if (this.isStoppable()) {
         actions.push(this.stopArmed ? th.fg("error", "x again to STOP") : th.fg("dim", "x stop"));
       }
-      const footerRight = th.fg("dim", "↑↓ scroll · ⇧↑↓ page · Alt↑↓ jump · Esc close");
+      actions.push(th.fg("dim", `m ${MARKDOWN_MODE_LABELS[this.markdownMode()]}`));
+      const footerRight = th.fg("dim", "↑↓/⇧↑↓/Alt↑↓ · Esc close");
 
       // Prepend the line-count/scroll-% readout only when there's spare width —
       // it's the first thing dropped so it never crowds out the hints.
@@ -289,6 +391,67 @@ export class ConversationViewer implements Component {
   /** Stoppable only when a stop handler exists and the agent is still active. */
   private isStoppable(): boolean {
     return !!this.onStop && (this.record.status === "running" || this.record.status === "queued");
+  }
+
+  private markdownMode(): ViewerMarkdownMode {
+    return this.markdownModeOverride ?? this.viewerMarkdown?.() ?? "assistant";
+  }
+
+  private rawLines(text: string, width: number, color?: "dim" | "error"): string[] {
+    const lines = wrapTextWithAnsi(text, width);
+    return color ? lines.map(line => this.theme.fg(color, line)) : lines;
+  }
+
+  /** Render Markdown with per-message parser caches and a remembered literal fallback. */
+  private markdownLines(
+    msg: SubagentSession["messages"][number],
+    text: string,
+    width: number,
+    color?: "dim" | "error",
+  ): string[] {
+    let entry = this.markdownCache.get(msg);
+    if (!entry) {
+      entry = {
+        md: new Markdown(
+          text,
+          0,
+          0,
+          this.markdownTheme,
+          color ? { color: (value: string) => this.theme.fg(color, value) } : undefined,
+          MARKDOWN_OPTIONS,
+        ),
+        text,
+      };
+      this.markdownCache.set(msg, entry);
+    } else if (entry.text !== text) {
+      const shouldRetry = !text.startsWith(entry.text);
+      entry.md.setText(text);
+      entry.text = text;
+      if (shouldRetry) entry.failed = false;
+    }
+    if (entry.failed) return this.rawLines(text, width, color);
+
+    try {
+      return entry.md.render(width);
+    } catch {
+      entry.failed = true;
+      return this.rawLines(text, width, color);
+    }
+  }
+
+  private outputLines(
+    msg: SubagentSession["messages"][number],
+    text: string,
+    width: number,
+    color: "dim" | "error",
+    markdown: boolean,
+    indent = "",
+  ): string[] {
+    const contentWidth = Math.max(1, width - visibleWidth(indent));
+    const rendered = markdown
+      ? this.markdownLines(msg, text, contentWidth, color)
+      : this.rawLines(text, contentWidth, color);
+    return rendered.map(line => indent + line);
   }
 
   /** Steerable only when a steer handler exists and the agent is still active. */
@@ -316,6 +479,7 @@ export class ConversationViewer implements Component {
 
   invalidate(): void {
     this.resetContentCache();
+    this.markdownCache = new WeakMap();
   }
 
   dispose(): void {
@@ -356,8 +520,12 @@ export class ConversationViewer implements Component {
     this.contentDirty = true;
     this.cachedContentWidth = 0;
     this.cachedContentLines = [];
+    this.cachedMarkdownMode = undefined;
+    this.cachedMessageCount = -1;
+    this.cachedTailState = [];
     this.stableMessages = [];
     this.stableToolResults = [];
+    this.stableToolResultStates = [];
     this.stableContentLines = [];
     this.stableHasContent = false;
   }
@@ -371,6 +539,7 @@ export class ConversationViewer implements Component {
   ): string[] {
     const th = this.theme;
     const lines: string[] = [];
+    const markdownMode = this.markdownMode();
     if (msg.role === "user") {
       const text = typeof msg.content === "string" ? msg.content : extractText(msg.content);
       if (!text.trim()) return [];
@@ -390,7 +559,12 @@ export class ConversationViewer implements Component {
         }
       }
       if (textParts.length > 0 || thinkingParts.length > 0) lines.push(th.bold("[Assistant]"));
-      if (textParts.length > 0) lines.push(...wrapTextWithAnsi(textParts.join("\n").trim(), width));
+      if (textParts.length > 0) {
+        const text = textParts.join("\n").trim();
+        lines.push(...(markdownMode === "off"
+          ? this.rawLines(text, width)
+          : this.markdownLines(msg, text, width)));
+      }
       for (const thinking of thinkingParts) {
         lines.push(th.fg("dim", "[Thinking]"));
         for (const line of wrapTextWithAnsi(thinking.trim(), width)) lines.push(th.fg("dim", line));
@@ -406,31 +580,33 @@ export class ConversationViewer implements Component {
         const preview = tool.preview ? ` ${tool.preview}` : "";
         lines.push(`${icon} ${th.fg("muted", `[Tool: ${tool.name}]${preview}`)}`);
         if (result?.role === "toolResult" && (this.toolsExpanded || failed)) {
-          const text = extractText(result.content);
-          const truncated = text.length > 500 ? text.slice(0, 500) + "... (truncated)" : text;
+          const { text, elided } = capResult(extractText(result.content).trim());
           const color = failed ? "error" : "dim";
           lines.push(th.fg(color, failed ? "  [Result: Error]" : "  [Result]"));
-          for (const line of wrapTextWithAnsi(truncated.trim(), Math.max(1, width - 2))) lines.push(th.fg(color, `  ${line}`));
+          if (text) lines.push(...this.outputLines(result, text, width, color, markdownMode === "all", "  "));
+          if (elided) lines.push(`  ${th.fg(color, truncationNote(elided))}`);
         }
       }
     } else if (msg.role === "toolResult") {
       const result = msg as typeof msg & { toolCallId?: string; toolUseId?: string };
       const id = result.toolCallId ?? result.toolUseId;
       if (id && pairedToolIds.has(id)) return [];
-      const text = extractText(msg.content);
-      const truncated = text.length > 500 ? text.slice(0, 500) + "... (truncated)" : text;
-      if (!truncated.trim() && !msg.isError) return [];
+      const { text, elided } = capResult(extractText(msg.content).trim());
+      if (!text && !msg.isError) return [];
       const resultColor = msg.isError ? "error" : "dim";
       lines.push(th.fg(resultColor, msg.isError ? "[Result: Error]" : "[Result]"));
-      for (const line of wrapTextWithAnsi(truncated.trim(), width)) lines.push(th.fg(resultColor, line));
+      if (text) lines.push(...this.outputLines(msg, text, width, resultColor, markdownMode === "all"));
+      if (elided) lines.push(th.fg(resultColor, truncationNote(elided)));
     } else if ((msg as any).role === "bashExecution") {
       const bash = msg as any;
       const failed = bash.cancelled || (typeof bash.exitCode === "number" && bash.exitCode !== 0);
       const icon = failed ? th.fg("error", "✗") : th.fg("success", "✓");
       lines.push(`${icon} ${th.fg("muted", `$ ${bash.command}`)}`);
       if (bash.output?.trim() && (this.toolsExpanded || failed)) {
-        const out = bash.output.length > 500 ? bash.output.slice(0, 500) + "... (truncated)" : bash.output;
-        for (const line of wrapTextWithAnsi(out.trim(), Math.max(1, width - 2))) lines.push(th.fg(failed ? "error" : "dim", `  ${line}`));
+        const { text, elided } = capResult(bash.output.trim());
+        const color = failed ? "error" : "dim";
+        lines.push(...this.rawLines(text, Math.max(1, width - 2), color).map(line => `  ${line}`));
+        if (elided) lines.push(`  ${th.fg(color, truncationNote(elided))}`);
       }
     }
     return lines.map(line => truncateToWidth(line, width));
@@ -445,19 +621,31 @@ export class ConversationViewer implements Component {
 
   private buildContentLines(width: number): string[] {
     if (width <= 0) return [];
-    if (!this.contentDirty && width === this.cachedContentWidth) return this.cachedContentLines;
 
     const messages = this.session.messages;
+    const mode = this.markdownMode();
+    const tailState = messageState(messages[messages.length - 1]);
+    if (
+      !this.contentDirty
+      && width === this.cachedContentWidth
+      && mode === this.cachedMarkdownMode
+      && messages.length === this.cachedMessageCount
+      && sameState(tailState, this.cachedTailState)
+    ) return this.cachedContentLines;
+
     if (messages.length === 0) {
       this.cachedContentWidth = width;
       this.cachedContentLines = [this.theme.fg("dim", "(waiting for first message...)")];
+      this.cachedMarkdownMode = mode;
+      this.cachedMessageCount = 0;
+      this.cachedTailState = tailState;
       this.contentDirty = false;
       return this.cachedContentLines;
     }
 
     const toolResults = new Map<string, SubagentSession["messages"][number]>();
     const pairedToolIds = new Set<string>();
-    const resultMessages: unknown[] = [];
+    const resultMessages: SubagentSession["messages"][number][] = [];
     for (const message of messages) {
       if (message.role === "assistant") {
         for (const content of message.content) {
@@ -478,14 +666,17 @@ export class ConversationViewer implements Component {
     const stablePrefixStillValid = width === this.cachedContentWidth
       && this.stableMessages.length <= stableCount
       && this.stableMessages.every((message, index) => message === messages[index]);
+    const resultStates = resultMessages.map(messageState);
     const toolResultsStillValid = this.stableToolResults.length === resultMessages.length
-      && this.stableToolResults.every((message, index) => message === resultMessages[index]);
+      && this.stableToolResults.every((message, index) => message === resultMessages[index])
+      && this.stableToolResultStates.every((state, index) => sameState(state, resultStates[index] ?? []));
     if (!stablePrefixStillValid || !toolResultsStillValid) {
       this.stableMessages = [];
       this.stableContentLines = [];
       this.stableHasContent = false;
     }
     this.stableToolResults = resultMessages;
+    this.stableToolResultStates = resultStates;
 
     // Completed history is immutable during ordinary streaming. Render each
     // message once; only the live tail is rebuilt for each delta. A compaction
@@ -511,6 +702,9 @@ export class ConversationViewer implements Component {
 
     this.cachedContentWidth = width;
     this.cachedContentLines = lines;
+    this.cachedMarkdownMode = mode;
+    this.cachedMessageCount = messages.length;
+    this.cachedTailState = tailState;
     this.contentDirty = false;
     return lines;
   }

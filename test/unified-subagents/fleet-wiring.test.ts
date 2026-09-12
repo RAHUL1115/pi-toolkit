@@ -29,6 +29,9 @@ function makePi() {
   const lifecycle = new Map<string, any>();
   const pi = {
     registerMessageRenderer: vi.fn(),
+    registerEntryRenderer: vi.fn(),
+    registerFlag: vi.fn(),
+    getFlag: vi.fn(),
     registerTool: vi.fn((t: any) => tools.set(t.name, t)),
     registerCommand: vi.fn(),
     on: vi.fn((event: string, handler: any) => lifecycle.set(event, handler)),
@@ -168,11 +171,11 @@ describe("FleetView wiring (real extension lifecycle)", () => {
   });
 
   it("registers the belowEditor widget once a spawned agent has a session, then clears it on shutdown", async () => {
-    vi.mocked(runAgent).mockResolvedValue({
-      responseText: "done",
-      session: { dispose: vi.fn() } as any,
-      aborted: false,
-      steered: false,
+    const session = { dispose: vi.fn() } as RunResult["session"];
+    let finish!: (result: RunResult) => void;
+    vi.mocked(runAgent).mockImplementation((_ctx, _type, _prompt, options) => {
+      options?.onSessionCreated?.(session);
+      return new Promise<RunResult>(resolve => { finish = resolve; });
     });
 
     const { pi, tools, lifecycle } = makePi();
@@ -186,16 +189,18 @@ describe("FleetView wiring (real extension lifecycle)", () => {
       { prompt: "go", description: "live one", subagent_type: "general-purpose", run_in_background: true },
       undefined,
       undefined,
-      ctxWith(uiCtx()),
+      ctxWith(ui),
     );
     expect(textOf(spawn)).toMatch(/Agent ID:/);
-    await flush(); // completion → fleet.onAgentFinished → update → widget registers
+    await flush(); // inspect a live session: completed agents must not linger
 
     const fleetRegs = ui.setWidget.mock.calls.filter(c => c[0] === "fleet" && typeof c[1] === "function");
     expect(fleetRegs.length, "fleet widget should register with a render factory").toBeGreaterThan(0);
     expect(ui.setWidget.mock.calls.some(c => c[0] === "agents" && typeof c[1] === "function")).toBe(false);
     expect(ui.setStatus).not.toHaveBeenCalledWith("subagents", expect.any(String));
 
+    finish({ responseText: "done", session, aborted: false, steered: false });
+    await flush();
     await lifecycle.get("session_shutdown")?.({}, ctxWith(uiCtx()));
     expect(ui.setWidget).toHaveBeenCalledWith("fleet", undefined); // dispose cleared it
   });

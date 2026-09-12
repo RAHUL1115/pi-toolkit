@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upstream v0.19 integration
+- Selectively port upstream through `e955e29c51b7a6cce37e1108cd2d6c57a77e151c`, preserving Toolkit's native harnesses, Economy, auto-detachment, schedules, usage, and shared Activity navigation. Exact future-check baseline: `UPSTREAM.json`.
+- Add deterministic `SubagentWorkflow` orchestration, structured output for Pi children, journals/checkpoint replay, saved scripts, nesting, validation gates, and inspector controls.
+- Add independent foreground concurrency and workflow-safe startup/worktree lifecycle handling.
+- Add bounded Markdown conversation rendering (`viewerMarkdown`, cycled with `m`) and 16K expanded tool previews without replacing paired results or changing stored transcripts.
+- Fix BOM-prefixed agent frontmatter and file toggling; retain authoritative RPC model scope and ownership enforcement.
+- Port workflow examples, regression tests, and performance/A-B harnesses. Require Pi >=0.84.0; retain existing dependencies.
+
 ### Added
 - **Added Antigravity CLI as a fourth `Agent` harness.** `harness: "agy"` launches the local `agy` executable in bidirectional stream-JSON mode and translates live text, tool activity/results, usage, stopping, and terminal status into the shared Pi-compatible session. Agy agents use the existing foreground/background queue, FleetView, transcript viewer, result delivery, worktree isolation, steering, and completion notifications. Native model IDs accept an optional `agy/` prefix; thinking maps to `low`, `medium`, or `high`; read-only agents use Agy plan mode. Trusted-project enforcement and explicit errors cover unsupported scheduling, resume, inherited context, hermetic isolation, max turns, nested delegation, Pi extensions/skills, memory, and Pi session persistence.
 - **Pi Toolkit consolidates live work into one Activity view.** The legacy above-editor agent widget is suppressed; FleetView now exposes only active `Tasks` and `Agents` tabs, omits the synthetic `main` row and completed-item linger, opens existing task/agent detail views, and returns to the originating list when detail closes. Current behavior is documented in this directory's README; older FleetView entries below remain historical.

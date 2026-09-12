@@ -33,6 +33,7 @@ import { resolveModel } from "./model-resolver.js";
 import { createNestedSubagentTools, getMaxSubagentDepth, type NestedAgentManager } from "./nested-tools.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
+import { createStructuredCapture, createStructuredOutputTool, structuredRetryPrompt } from "./structured-output.js";
 import type { SubagentType } from "./types.js";
 
 /**
@@ -43,6 +44,7 @@ import type { SubagentType } from "./types.js";
  */
 export const SUBAGENT_TOOL_NAMES = {
   AGENT: "Agent",
+  WORKFLOW: "SubagentWorkflow",
   GET_RESULT: "get_subagent_result",
   STEER: "steer_subagent",
 } as const;
@@ -239,11 +241,11 @@ export function installExtensionToolScope(
     disallowedSet: Set<string> | undefined;
     extNames: Set<string>;
     narrowing: Map<string, Set<string>>;
-    /** Opt-in nested-delegation tool names to keep active despite the EXCLUDED strip. */
-    nestedToolNames: Set<string>;
+    /** Injected custom tools to keep active despite registry and active-set scoping. */
+    readmitToolNames: Set<string>;
   },
 ): void {
-  const { loader, toolNames, disallowedSet, extNames, narrowing, nestedToolNames } = ctx;
+  const { loader, toolNames, disallowedSet, extNames, narrowing, readmitToolNames } = ctx;
 
   // The names allowed right now. Mirrors the `ext:` opt-in flip: when any `ext:`
   // selector is present, extension tools become an explicit allowlist — a loaded
@@ -265,12 +267,9 @@ export function installExtensionToolScope(
       }
     }
     for (const name of EXCLUDED_TOOL_NAMES) keep.delete(name);
-    // Opt-in nested delegation tools share EXCLUDED_TOOL_NAMES' names but are
-    // legitimately active for this agent — re-admit them so the renarrow keeps
-    // them in the active set and beforeToolCall doesn't block them.
-    for (const name of nestedToolNames) {
-      if (!disallowedSet?.has(name)) keep.add(name);
-    }
+    // Injected tools are legitimately active for this agent. The caller has
+    // already applied each tool kind's disallowed_tools policy.
+    for (const name of readmitToolNames) keep.add(name);
     return keep;
   };
 
@@ -530,6 +529,7 @@ export async function runAgent(
   // Build prompt extras (memory, skill preloading)
   const extras: PromptExtras = {};
   if (options.worktreeBase) extras.worktreeBase = options.worktreeBase;
+  if (options.workflow && !options.structuredOutput) extras.workflowChild = true;
 
   // Resolve extensions/skills: isolated overrides to false
   const extensions = options.isolated ? false : config.extensions;
@@ -764,6 +764,18 @@ export async function runAgent(
     : [];
   const nestedToolNames = new Set(nestedTools.map(tool => tool.name));
 
+  const structuredCapture = options.structuredOutput ? createStructuredCapture() : undefined;
+  const structuredTools = options.structuredOutput && structuredCapture
+    ? [createStructuredOutputTool(options.structuredOutput, structuredCapture)]
+    : [];
+  const structuredToolNames = new Set(structuredTools.map(tool => tool.name));
+  // Nested tools remain subject to the agent's disallowed_tools; StructuredOutput
+  // cannot be removed because it is the only way to satisfy the caller's schema.
+  const readmitToolNames = new Set([
+    ...[...nestedToolNames].filter(name => !disallowedSet?.has(name)),
+    ...structuredToolNames,
+  ]);
+
   // ─── Tool scoping ───────────────────────────────────────────────────────
   //
   // Some extensions register their tools ASYNCHRONOUSLY, long after the
@@ -803,6 +815,7 @@ export async function runAgent(
         (t) => !EXCLUDED_TOOL_NAMES.includes(t) && !disallowedSet?.has(t),
       ),
       ...[...nestedToolNames].filter((t) => !disallowedSet?.has(t)),
+      ...structuredToolNames,
     ];
   } else {
     // Deny the orchestration tools EXCEPT the nested ones this agent opted into —
@@ -815,8 +828,10 @@ export async function runAgent(
       if (!builtinToolNameSet.has(name)) denyTools.add(name);
     }
     if (disallowedSet) {
-      // disallowed_tools wins even over an opt-in nested tool of the same name.
-      for (const name of disallowedSet) denyTools.add(name);
+      // StructuredOutput is mandatory when the caller supplied a schema.
+      for (const name of disallowedSet) {
+        if (!structuredToolNames.has(name)) denyTools.add(name);
+      }
     }
     sessionExcludeTools = [...denyTools];
   }
@@ -864,7 +879,7 @@ export async function runAgent(
     ...(parentModelRuntime !== undefined && { modelRuntime: parentModelRuntime as never }),
     model,
     tools: sessionTools,
-    customTools: nestedTools,
+    customTools: [...nestedTools, ...structuredTools],
     resourceLoader: loader,
   };
   if (sessionExcludeTools) {
@@ -907,7 +922,7 @@ export async function runAgent(
       disallowedSet,
       extNames,
       narrowing,
-      nestedToolNames,
+      readmitToolNames,
     });
   }
 
@@ -977,8 +992,14 @@ export async function runAgent(
   // Boundary for the history fallback: only assistant text produced from here
   // on counts as this run's output (a fresh session, so usually 0).
   const startLen = session.messages.length;
+  let structuredRetried = false;
   try {
     await session.prompt(effectivePrompt);
+    if (structuredCapture !== undefined && structuredCapture.json === undefined
+      && !aborted && options.signal?.aborted !== true) {
+      structuredRetried = true;
+      await session.prompt(structuredRetryPrompt(structuredCapture));
+    }
   } finally {
     unsubTurns();
     collector.unsubscribe();
@@ -986,7 +1007,20 @@ export async function runAgent(
   }
 
   const responseText = collector.getText().trim() || getLastAssistantText(session, startLen);
-  return { responseText, session, aborted, steered: softLimitReached, failure: finalTurnError(session, startLen) };
+  const structuredFailure = structuredCapture !== undefined && structuredCapture.json === undefined
+    ? structuredCapture.lastError !== undefined
+      ? `The agent's StructuredOutput call did not match the required schema: ${structuredCapture.lastError}`
+      : "The agent did not report its answer through StructuredOutput."
+    : undefined;
+  return {
+    responseText,
+    session,
+    aborted,
+    steered: softLimitReached,
+    failure: finalTurnError(session, startLen) ?? structuredFailure,
+    ...(structuredCapture?.json !== undefined ? { structuredJson: structuredCapture.json } : {}),
+    ...(structuredRetried ? { structuredRetried } : {}),
+  };
 }
 
 /**

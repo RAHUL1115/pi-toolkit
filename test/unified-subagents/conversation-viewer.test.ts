@@ -8,11 +8,25 @@ import type { AgentRecord } from "../../pi-toolkit-lib/unified-subagents/types.j
 // its import.
 
 let wrapOverride: ((text: string, width: number) => string[]) | null = null;
+let markdownConstructions = 0;
+let markdownRenderCalls = 0;
+let markdownThrows = false;
 
 vi.mock("@earendil-works/pi-tui", async (importOriginal) => {
   const original = await importOriginal<typeof import("@earendil-works/pi-tui")>();
   return {
     ...original,
+    Markdown: class extends original.Markdown {
+      constructor(...args: ConstructorParameters<typeof original.Markdown>) {
+        markdownConstructions++;
+        super(...args);
+      }
+      render(width: number): string[] {
+        markdownRenderCalls++;
+        if (markdownThrows) throw new RangeError("Maximum call stack size exceeded");
+        return super.render(width);
+      }
+    },
     wrapTextWithAnsi: (...args: [string, number]) => {
       if (wrapOverride) return wrapOverride(...args);
       return original.wrapTextWithAnsi(...args);
@@ -23,7 +37,7 @@ vi.mock("@earendil-works/pi-tui", async (importOriginal) => {
 // Must import AFTER vi.mock declaration (vitest hoists vi.mock but the
 // dynamic import of the test subject must happen after)
 const { visibleWidth } = await import("@earendil-works/pi-tui");
-const { ConversationViewer } = await import("../../pi-toolkit-lib/unified-subagents/ui/conversation-viewer.js");
+const { ConversationViewer, RESULT_MAX_CHARS } = await import("../../pi-toolkit-lib/unified-subagents/ui/conversation-viewer.js");
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -81,6 +95,9 @@ function assertAllLinesFit(lines: string[], width: number) {
 
 beforeEach(() => {
   wrapOverride = null;
+  markdownConstructions = 0;
+  markdownRenderCalls = 0;
+  markdownThrows = false;
 });
 
 describe("ConversationViewer invocation line", () => {
@@ -382,6 +399,221 @@ describe("ConversationViewer", () => {
           mockTui(30, w), mockSession(messages), mockRecord(), undefined, ansiTheme(), vi.fn(),
         );
         assertAllLinesFit(viewer.render(w), w);
+      }
+    });
+  });
+
+  describe("Markdown rendering", () => {
+    const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
+
+    function viewerFor(
+      messages: any[],
+      mode?: "off" | "assistant" | "all",
+      onMode?: (mode: any) => void,
+      rows = 200,
+    ) {
+      return new ConversationViewer(
+        mockTui(rows, 80), mockSession(messages), mockRecord({ status: "completed" }), undefined,
+        ansiTheme(), vi.fn(), undefined, undefined, undefined, false,
+        mode ? () => mode : undefined, onMode,
+      );
+    }
+
+    const assistant = (text: string) => [{ role: "assistant", content: [{ type: "text", text }] }];
+    const result = (text: string) => [{ role: "toolResult", toolUseId: "t1", content: [{ type: "text", text }] }];
+
+    it("renders assistant Markdown by default", () => {
+      const out = strip(viewerFor(assistant("# Heading\n\n- first\n- second\n\n**bold**")).render(80).join("\n"));
+      expect(out).toContain("Heading");
+      expect(out).not.toContain("# Heading");
+      expect(out).not.toContain("**bold**");
+    });
+
+    it("leaves assistant text verbatim under off", () => {
+      const out = strip(viewerFor(assistant("# Heading\n\n**bold**"), "off").render(80).join("\n"));
+      expect(out).toContain("# Heading");
+      expect(out).toContain("**bold**");
+    });
+
+    it("leaves tool results verbatim under the default mode", () => {
+      const raw = ["#!/bin/sh", "# section", "3) alpha", "7) beta", "9) gamma", "Section", "---", "next"].join("\n");
+      const out = strip(viewerFor(result(raw)).render(80).join("\n"));
+      for (const line of raw.split("\n")) expect(out).toContain(line);
+    });
+
+    it("renders tool-result Markdown under all without renumbering lists", () => {
+      const markdown = strip(viewerFor(result("## ctx_execute\n\n- one\n- two"), "all").render(80).join("\n"));
+      expect(markdown).toContain("ctx_execute");
+      expect(markdown).not.toContain("## ctx_execute");
+
+      const ordered = strip(viewerFor(result("3) alpha\n7) beta\n9) gamma"), "all").render(80).join("\n"));
+      expect(ordered).toContain("3) alpha");
+      expect(ordered).not.toContain("4. beta");
+    });
+
+    it("m cycles and persists off/assistant/all while updating the footer", () => {
+      const onMode = vi.fn();
+      const viewer = viewerFor(assistant("# Heading"), "assistant", onMode);
+      expect(strip(viewer.render(80).join("\n"))).toContain("m md");
+
+      viewer.handleInput("m");
+      expect(onMode).toHaveBeenLastCalledWith("all");
+      expect(strip(viewer.render(80).join("\n"))).toContain("m md+");
+
+      viewer.handleInput("m");
+      expect(onMode).toHaveBeenLastCalledWith("off");
+      const off = strip(viewer.render(80).join("\n"));
+      expect(off).toContain("m raw");
+      expect(off).toContain("# Heading");
+
+      viewer.handleInput("m");
+      expect(onMode).toHaveBeenLastCalledWith("assistant");
+    });
+
+    it("m cycles locally without a persist hook and disarms stop", () => {
+      const local = viewerFor(assistant("# Heading"), "assistant");
+      local.handleInput("m");
+      local.handleInput("m");
+      expect(strip(local.render(80).join("\n"))).toContain("# Heading");
+
+      const onStop = vi.fn();
+      const stoppable = new ConversationViewer(
+        mockTui(200, 80), mockSession(assistant("hi")), mockRecord({ status: "running" }), undefined,
+        ansiTheme(), vi.fn(), onStop,
+      );
+      stoppable.handleInput("x");
+      stoppable.handleInput("m");
+      stoppable.handleInput("x");
+      expect(onStop).not.toHaveBeenCalled();
+    });
+
+    it("keeps local tool/navigation actions and Markdown mode visible at 80 columns", () => {
+      const viewer = new ConversationViewer(
+        mockTui(200, 80), mockSession(assistant("hi")), mockRecord({ status: "running" }), undefined,
+        ansiTheme(), vi.fn(), vi.fn(), undefined, vi.fn(),
+      );
+      const lines = viewer.render(80);
+      const footer = strip(lines[lines.length - 2]);
+      expect(footer).toContain("Ctrl+O");
+      expect(footer).toContain("Enter steer");
+      expect(footer).toContain("x stop");
+      expect(footer).toContain("m md");
+      expect(footer).toContain("Esc close");
+    });
+
+    it("caps tool results at 16k and reports the omitted character magnitude", () => {
+      const lines = Array.from({ length: 3000 }, (_, i) => `line ${i}`);
+      const out = strip(viewerFor(result(lines.join("\n")), undefined, undefined, 4000).render(80).join("\n"));
+      expect(out).toContain("line 100");
+      expect(out).not.toContain("line 2999");
+      expect(out).toMatch(/\.\.\. \(truncated, [\d.]+[kM]? more characters\)/);
+    });
+
+    it("puts truncation notices outside Markdown code fences", () => {
+      const text = `\`\`\`js\n${"const a = 1;\n".repeat(2000)}\`\`\``;
+      const viewer = viewerFor(result(text), "all", undefined, 4000);
+      const note = ((viewer as any).buildContentLines(76) as string[]).map(strip)
+        .find(line => line.includes("... (truncated"));
+      expect(note).toMatch(/^\.\.\. \(truncated, [\d.]+[kM]? more characters\)$/);
+    });
+
+    it("reports exact small counts and readable large counts", () => {
+      const exact = `${"x".repeat(RESULT_MAX_CHARS)}😀x`;
+      const exactContent = ((viewerFor(result(exact)) as any).buildContentLines(76) as string[]).map(strip);
+      expect(exactContent).toContain("... (truncated, 3 more characters)");
+
+      const large = `${"x".repeat(RESULT_MAX_CHARS)}${"y".repeat(1_100_000)}`;
+      const largeNote = viewerFor(result(large)).render(50).map(strip).find(line => line.includes("truncated,"));
+      expect(largeNote).toContain("1.1M more characters)");
+
+      const rounded = `${"x".repeat(RESULT_MAX_CHARS)}${"y".repeat(999_999)}`;
+      expect(strip(viewerFor(result(rounded)).render(80).join("\n"))).toContain("1M more characters");
+    });
+
+    it("falls back to literal wrapping once for an unsafe streaming prefix", () => {
+      const messages = result("# heading");
+      const viewer = viewerFor(messages, "all");
+      markdownThrows = true;
+
+      expect(() => viewer.render(80)).not.toThrow();
+      expect(strip(viewer.render(80).join("\n"))).toContain("# heading");
+
+      messages[0].content[0].text += "\nmore";
+      expect(strip(viewer.render(80).join("\n"))).toContain("more");
+      expect(markdownRenderCalls).toBe(1);
+
+      markdownThrows = false;
+      expect(strip(viewer.render(80).join("\n"))).toContain("# heading");
+      expect(markdownRenderCalls).toBe(1);
+
+      messages[0].content[0].text = "## safe";
+      const replaced = strip(viewer.render(80).join("\n"));
+      expect(markdownRenderCalls).toBe(2);
+      expect(replaced).toContain("safe");
+      expect(replaced).not.toContain("## safe");
+    });
+
+    it("tracks a growing result beyond the cap without constructing Markdown by default", () => {
+      const msg = { role: "toolResult", toolUseId: "t", content: [{ type: "text", text: "row\n".repeat(4500) }] };
+      const viewer = viewerFor([msg]);
+      const elided = () => {
+        const match = strip(((viewer as any).buildContentLines(76) as string[]).join("\n"))
+          .match(/truncated, ([\d.]+)([kM]?) more/);
+        return Number(match?.[1]) * (match?.[2] === "M" ? 1e6 : match?.[2] === "k" ? 1e3 : 1);
+      };
+      const before = elided();
+      msg.content[0].text += "row\n".repeat(1000);
+      const after = elided();
+      expect(after).toBeGreaterThan(before);
+      expect(markdownConstructions).toBe(0);
+    });
+
+    it("leaves under-cap results untouched and caps expanded bash output", () => {
+      const text = `head\n${"filler line\n".repeat(200)}tail`;
+      const out = strip(viewerFor(result(text), undefined, undefined, 600).render(80).join("\n"));
+      expect(text.length).toBeLessThan(RESULT_MAX_CHARS);
+      expect(out).toContain("tail");
+      expect(out).not.toContain("truncated");
+
+      const bashViewer = viewerFor([{ role: "bashExecution", command: "yes", output: "y\n".repeat(20000) }], undefined, undefined, 4000);
+      bashViewer.handleInput("\x0f");
+      expect(strip(bashViewer.render(80).join("\n"))).toMatch(/\.\.\. \(truncated, [\d.]+[kM]? more characters\)/);
+    });
+
+    it("styles result content on both Markdown and literal paths", () => {
+      for (const mode of ["all", "assistant"] as const) {
+        const viewer = viewerFor(result("plain result text"), mode);
+        const line = ((viewer as any).buildContentLines(76) as string[])
+          .find(value => strip(value).includes("plain result text"));
+        expect(line).toContain("\x1b[38;5;240m");
+      }
+    });
+
+    it("reuses Markdown per message and refreshes a directly-mutated live tail", () => {
+      const messages = assistant("# One");
+      const viewer = viewerFor(messages);
+      expect(strip(viewer.render(80).join("\n"))).toContain("One");
+      const afterFirst = markdownConstructions;
+      viewer.render(80);
+      viewer.render(80);
+      expect(markdownConstructions).toBe(afterFirst);
+
+      messages[0].content[0].text = "# Two";
+      const updated = strip(viewer.render(80).join("\n"));
+      expect(updated).toContain("Two");
+      expect(updated).not.toContain("One");
+      expect(markdownConstructions).toBe(1);
+    });
+
+    it("renders Markdown within width without relying on the truncation backstop", () => {
+      const text = `# ${"Heading ".repeat(20)}\n\n| a | b |\n|---|---|\n| ${"x".repeat(90)} | 2 |\n\n\`\`\`js\nconst x = ${"1".repeat(120)};\n\`\`\``;
+      for (const width of [20, 40, 80, 120]) {
+        const viewer = new ConversationViewer(
+          mockTui(30, width), mockSession(assistant(text)), mockRecord(), undefined, ansiTheme(), vi.fn(),
+        );
+        const content = (viewer as any).buildContentLines(width) as string[];
+        assertAllLinesFit(content, width);
+        expect(content.filter(line => strip(line).endsWith("..."))).toEqual([]);
       }
     });
   });

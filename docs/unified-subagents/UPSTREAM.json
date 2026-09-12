@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/tintinweb/pi-subagents.git",
+  "branch": "master",
+  "previousImportedThrough": "92422a4bf3c3813e01e24c73fa14234dc4ce3b28",
+  "importedThrough": "e955e29c51b7a6cce37e1108cd2d6c57a77e151c",
+  "release": "v0.19.0",
+  "releaseCommit": "4f572eaa04c09d3dbc16e4a5f13a16b295e84e14",
+  "integration": "selective-port",
+  "sourcePaths": {
+    "src/": "pi-toolkit-lib/unified-subagents/",
+    "test/": "test/unified-subagents/",
+    "docs/": "docs/unified-subagents/docs/",
+    "examples/workflows/": "examples/workflows/"
+  },
+  "retainedFork": {
+    "repository": "https://github.com/RAHUL1115/pi-unified-subagents",
+    "consolidationCommit": "4b581fa99dc13f1a4295f2935cdf0205a0ab9443"
+  },
+  "portRecord": "docs/unified-subagents/upstream-v0.19-port.md"
+}

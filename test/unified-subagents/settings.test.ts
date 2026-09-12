@@ -235,6 +235,13 @@ describe("settings persistence", () => {
     expect(loadSettings(projectDir)).toEqual({}); // invalid value dropped
   });
 
+  it("round-trips viewer markdown and workflow controls", () => {
+    saveSettings({ viewerMarkdown: "assistant", workflowsEnabled: true }, projectDir);
+    expect(loadSettings(projectDir)).toEqual({ viewerMarkdown: "assistant", workflowsEnabled: true });
+    writeProject({ viewerMarkdown: "markdown", workflowsEnabled: "on" });
+    expect(loadSettings(projectDir)).toEqual({});
+  });
+
   it("round-trips outputTranscript; drops non-boolean", () => {
     saveSettings({ outputTranscript: false }, projectDir);
     expect(loadSettings(projectDir)).toEqual({ outputTranscript: false });
@@ -349,6 +356,15 @@ describe("settings persistence", () => {
     it("drops negative maxConcurrent", () => {
       writeProject({ maxConcurrent: -3 });
       expect(loadSettings(projectDir)).toEqual({});
+    });
+
+    it("keeps foreground 0 as unlimited and drops invalid caps", () => {
+      writeProject({ maxConcurrentForeground: 0 });
+      expect(loadSettings(projectDir)).toEqual({ maxConcurrentForeground: 0 });
+      for (const value of [-1, 1025, 1.5, "four", null]) {
+        writeProject({ maxConcurrentForeground: value });
+        expect(loadSettings(projectDir).maxConcurrentForeground).toBeUndefined();
+      }
     });
 
     it("drops non-integer maxConcurrent (floats, NaN, strings)", () => {
@@ -625,6 +641,7 @@ describe("settings persistence", () => {
     beforeEach(() => {
       appliers = {
         setMaxConcurrent: vi.fn(),
+        setMaxConcurrentForeground: vi.fn(),
         setDefaultMaxTurns: vi.fn(),
         setGraceTurns: vi.fn(),
         setDefaultJoinMode: vi.fn(),
@@ -645,7 +662,16 @@ describe("settings persistence", () => {
         setReportUsage: vi.fn(),
         setShowCost: vi.fn(),
         setShowModel: vi.fn(),
+        setViewerMarkdown: vi.fn(),
+        setWorkflowsEnabled: vi.fn(),
       };
+    });
+
+    it("applies foreground, markdown, and workflow settings", () => {
+      applySettings({ maxConcurrentForeground: 0, viewerMarkdown: "all", workflowsEnabled: false }, appliers);
+      expect(appliers.setMaxConcurrentForeground).toHaveBeenCalledWith(0);
+      expect(appliers.setViewerMarkdown).toHaveBeenCalledWith("all");
+      expect(appliers.setWorkflowsEnabled).toHaveBeenCalledWith(false);
     });
 
     it("applies reportUsage and showCost", () => {
@@ -868,6 +894,7 @@ describe("settings persistence", () => {
     beforeEach(() => {
       appliers = {
         setMaxConcurrent: vi.fn(),
+        setMaxConcurrentForeground: vi.fn(),
         setDefaultMaxTurns: vi.fn(),
         setGraceTurns: vi.fn(),
         setDefaultJoinMode: vi.fn(),
@@ -888,6 +915,8 @@ describe("settings persistence", () => {
         setReportUsage: vi.fn(),
         setShowCost: vi.fn(),
         setShowModel: vi.fn(),
+        setViewerMarkdown: vi.fn(),
+        setWorkflowsEnabled: vi.fn(),
       };
     });
 

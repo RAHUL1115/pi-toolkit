@@ -17,25 +17,46 @@ export interface BootedPi {
   pi: any;
   tools: Map<string, any>;
   lifecycle: Map<string, any>;
+  entryRenderers: Map<string, any>;
+  registeredFlags: Map<string, any>;
+  commands: Map<string, any>;
 }
 
-/** A mock ExtensionAPI that records every tool and lifecycle handler registered. */
-export function makePi(): BootedPi {
+/** Flags are applied by Pi after registration, then read at session_start. */
+export function makePi(flags: Record<string, boolean | string> = {}): BootedPi {
   const tools = new Map<string, any>();
   const lifecycle = new Map<string, any>();
+  const entryRenderers = new Map<string, any>();
+  const registeredFlags = new Map<string, any>();
+  const commands = new Map<string, any>();
+  const activeTools: string[] = [];
   const pi = {
     registerMessageRenderer: vi.fn(),
-    registerTool: vi.fn((t: any) => tools.set(t.name, t)),
-    registerCommand: vi.fn(),
+    registerEntryRenderer: vi.fn((type: string, renderer: any) => entryRenderers.set(type, renderer)),
+    registerTool: vi.fn((t: any) => {
+      tools.set(t.name, t);
+      if (!activeTools.includes(t.name)) activeTools.push(t.name);
+    }),
+    registerCommand: vi.fn((name: string, command: any) => commands.set(name, command)),
+    registerFlag: vi.fn((name: string, options: any) => registeredFlags.set(name, options)),
+    getFlag: vi.fn((name: string) => flags[name]),
     on: vi.fn((event: string, handler: any) => lifecycle.set(event, handler)),
     events: {
       emit: vi.fn(),
       on: vi.fn(() => vi.fn()),
     },
+    getAllTools: vi.fn(() => [] as any[]),
+    getCommands: vi.fn(() => [] as any[]),
+    getActiveTools: vi.fn(() => [...activeTools]),
+    setActiveTools: vi.fn((names: string[]) => {
+      activeTools.length = 0;
+      activeTools.push(...names);
+    }),
     appendEntry: vi.fn(),
     sendMessage: vi.fn(),
+    exec: vi.fn(async () => ({ stdout: "", stderr: "", code: 0, killed: false })),
   } as any;
-  return { pi, tools, lifecycle };
+  return { pi, tools, lifecycle, entryRenderers, registeredFlags, commands };
 }
 
 /** A mock ExtensionContext — the second half of what a tool's `execute` receives. */

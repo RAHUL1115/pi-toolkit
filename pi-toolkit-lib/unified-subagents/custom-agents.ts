@@ -120,6 +120,17 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
 }
 
 /**
+ * Parse an agent file's frontmatter, tolerating a leading UTF-8 BOM.
+ *
+ * A BOM is an encoding artifact rather than content. Normalizing it at this
+ * boundary keeps fields such as `tools: none` from silently falling back to
+ * wider defaults on pi versions whose frontmatter parser misses the fence.
+ */
+export function parseAgentFrontmatter<T extends Record<string, unknown>>(content: string): { frontmatter: T; body: string } {
+  return parseFrontmatter<T>(content.startsWith("\uFEFF") ? content.slice(1) : content);
+}
+
+/**
  * Read and parse one agent file, or warn and return undefined for the caller to
  * skip. One bad file must not take the whole extension down with it — an
  * unparseable `.md` used to abort activation, so pi exited before the TUI.
@@ -133,7 +144,7 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
  */
 function readAgentFile(path: string, strict: boolean): { frontmatter: Record<string, unknown>; body: string } | undefined {
   try {
-    return parseFrontmatter<Record<string, unknown>>(readFileSync(path, "utf-8"));
+    return parseAgentFrontmatter<Record<string, unknown>>(readFileSync(path, "utf-8"));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     if (strict) throw new Error(`${path}: ${reason}`);

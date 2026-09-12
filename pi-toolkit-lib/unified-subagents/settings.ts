@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { NO_FALLBACK } from "./agent-types.js";
-import type { AgentMentionMode, JoinMode, ThinkingLevel, WidgetMode } from "./types.js";
+import type { AgentMentionMode, JoinMode, ThinkingLevel, ViewerMarkdownMode, WidgetMode } from "./types.js";
 
 export type LightThinkingLevel = "off" | ThinkingLevel;
 
@@ -36,6 +36,8 @@ export interface AvailableLightModel {
 
 export interface SubagentsSettings {
   maxConcurrent?: number;
+  /** Maximum concurrent blocking top-level agents. 0 means unlimited. */
+  maxConcurrentForeground?: number;
   /**
    * 0 = unlimited — the extension's single source of truth for that convention:
    * `normalizeMaxTurns()` in agent-runner.ts treats 0 → `undefined`, and the
@@ -270,6 +272,10 @@ export interface SubagentsSettings {
    * narrow terminal.
    */
   showModel?: boolean;
+  /** Markdown rendering in the conversation viewer. Defaults to assistant-only. */
+  viewerMarkdown?: ViewerMarkdownMode;
+  /** Master switch for scripted workflows. Unset retains automatic collision handling. */
+  workflowsEnabled?: boolean;
 }
 
 export type ToolDescriptionMode = "full" | "compact" | "custom";
@@ -277,6 +283,7 @@ export type ToolDescriptionMode = "full" | "compact" | "custom";
 /** Setter hooks used by applySettings to wire persisted values into in-memory state. */
 export interface SettingsAppliers {
   setMaxConcurrent: (n: number) => void;
+  setMaxConcurrentForeground: (n: number) => void;
   setDefaultMaxTurns: (n: number) => void;
   setGraceTurns: (n: number) => void;
   setDefaultJoinMode: (mode: JoinMode) => void;
@@ -297,6 +304,8 @@ export interface SettingsAppliers {
   setReportUsage: (b: boolean) => void;
   setShowCost: (b: boolean) => void;
   setShowModel: (b: boolean) => void;
+  setViewerMarkdown: (mode: ViewerMarkdownMode) => void;
+  setWorkflowsEnabled: (b: boolean) => void;
 }
 
 /** Emit callback — a subset of `pi.events.emit` to keep helpers testable. */
@@ -305,6 +314,7 @@ export type SettingsEmit = (event: string, payload: unknown) => void;
 const VALID_JOIN_MODES: ReadonlySet<string> = new Set<JoinMode>(["async", "group", "smart"]);
 const VALID_TOOL_DESCRIPTION_MODES: ReadonlySet<string> = new Set<ToolDescriptionMode>(["full", "compact", "custom"]);
 const VALID_WIDGET_MODES: ReadonlySet<string> = new Set<WidgetMode>(["all", "background", "off"]);
+const VALID_VIEWER_MARKDOWN_MODES: ReadonlySet<string> = new Set<ViewerMarkdownMode>(["off", "assistant", "all"]);
 const VALID_THINKING_LEVELS: ReadonlySet<string> = new Set<LightThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const LIGHT_MODEL_KEYS = ["lightModel", "lightThinking"] as const;
 const LEGACY_LIGHT_MODEL_KEYS = ["economyModel", "economyThinking", "fastModel", "fastThinking"] as const;
@@ -329,6 +339,13 @@ function sanitize(raw: unknown, includeLightModel = false): SubagentsSettings {
     (r.maxConcurrent as number) <= MAX_CONCURRENT_CEILING
   ) {
     out.maxConcurrent = r.maxConcurrent as number;
+  }
+  if (
+    Number.isInteger(r.maxConcurrentForeground) &&
+    (r.maxConcurrentForeground as number) >= 0 &&
+    (r.maxConcurrentForeground as number) <= MAX_CONCURRENT_CEILING
+  ) {
+    out.maxConcurrentForeground = r.maxConcurrentForeground as number;
   }
   if (
     Number.isInteger(r.defaultMaxTurns) &&
@@ -408,6 +425,12 @@ function sanitize(raw: unknown, includeLightModel = false): SubagentsSettings {
   }
   if (typeof r.showModel === "boolean") {
     out.showModel = r.showModel;
+  }
+  if (typeof r.viewerMarkdown === "string" && VALID_VIEWER_MARKDOWN_MODES.has(r.viewerMarkdown)) {
+    out.viewerMarkdown = r.viewerMarkdown as ViewerMarkdownMode;
+  }
+  if (typeof r.workflowsEnabled === "boolean") {
+    out.workflowsEnabled = r.workflowsEnabled;
   }
   if (r.fallbackSubagent === false) {
     // The only non-string spelling worth accepting: a boolean would otherwise be
@@ -535,6 +558,9 @@ export function applySettings(s: SubagentsSettings, appliers: SettingsAppliers):
   setLightModel(s.lightModel);
   setLightThinking(s.lightThinking);
   if (typeof s.maxConcurrent === "number") appliers.setMaxConcurrent(s.maxConcurrent);
+  if (typeof s.maxConcurrentForeground === "number") {
+    appliers.setMaxConcurrentForeground(s.maxConcurrentForeground);
+  }
   if (typeof s.defaultMaxTurns === "number") appliers.setDefaultMaxTurns(s.defaultMaxTurns);
   if (typeof s.graceTurns === "number") appliers.setGraceTurns(s.graceTurns);
   if (typeof s.maxSubagentDepth === "number") appliers.setMaxSubagentDepth(s.maxSubagentDepth);
@@ -555,6 +581,8 @@ export function applySettings(s: SubagentsSettings, appliers: SettingsAppliers):
   if (typeof s.reportUsage === "boolean") appliers.setReportUsage(s.reportUsage);
   if (typeof s.showCost === "boolean") appliers.setShowCost(s.showCost);
   if (typeof s.showModel === "boolean") appliers.setShowModel(s.showModel);
+  if (s.viewerMarkdown) appliers.setViewerMarkdown(s.viewerMarkdown);
+  if (typeof s.workflowsEnabled === "boolean") appliers.setWorkflowsEnabled(s.workflowsEnabled);
 }
 
 /**

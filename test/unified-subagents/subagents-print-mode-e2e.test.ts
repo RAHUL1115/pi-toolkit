@@ -270,6 +270,38 @@ describe.skipIf(LIVE)("subagents print-mode e2e (scripted faux, real pi-mono)", 
     await expect(runPrintMode({ prompt: "x" })).rejects.toThrow(/provide `respond` or `steps`/);
   });
 
+  it("preserves an initialization error and restores state before a dispose handle exists", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "subagents-init-failure-"));
+    const prevCwd = process.cwd();
+    const prevAgentDir = process.env.PI_CODING_AGENT_DIR;
+    const prevHome = process.env.HOME;
+    const primary = new Error("intentional beforeRun failure");
+    let caught: unknown;
+
+    try {
+      await runPrintMode({
+        cwd,
+        prompt: "never reached",
+        respond: () => "never reached",
+        beforeRun: () => {
+          throw primary;
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    try {
+      expect(caught).toBe(primary);
+      expect(process.cwd()).toBe(prevCwd);
+      expect(process.env.PI_CODING_AGENT_DIR).toBe(prevAgentDir);
+      expect(process.env.HOME).toBe(prevHome);
+      expect((globalThis as Record<symbol, unknown>)[Symbol.for("pi-subagents:manager")]).toBeUndefined();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("times out with the runner's own descriptive error and restores the environment", async () => {
     const prevCwd = process.cwd();
     // A responder that never resolves — the turn stalls until the wall-clock guard fires.

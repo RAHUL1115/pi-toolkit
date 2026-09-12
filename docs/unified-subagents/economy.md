@@ -8,6 +8,6 @@ Findings are analysis, not exact source text. Parent-facing foreground and fetch
 
 For exact reads, the user can grant `/economy allow <path>` for one next read of that canonical path, or `/economy off`. Off clears pending permits. Paths with spaces may be quoted. These are user commands, not agent-callable approval tools.
 
-`/economy stats` reports guard counts and actual reported bulk-reader usage since extension activation, including failed runs. Counts are attempts, not estimated token savings. Existing subagent usage reporting remains unchanged.
+Whenever a read is blocked, Economy posts a local UI notification with the estimated parent-input tokens kept out of context and, when the active model has pricing metadata, their standard-input list-price cost. `/economy stats` reports cumulative estimates alongside guard counts and actual reported bulk-reader usage since extension activation, including failed runs. Savings use a conservative UTF-8 bytes/4 heuristic, subtract the existing block message, and exclude bulk-reader spend, later cache effects, and counterfactual model behavior; they are estimates, not provider-reported savings. The notification and accounting add no prompt text, messages, tools, or tool definitions. Existing subagent usage reporting remains unchanged.
 
 This is an economy guard, not a filesystem security sandbox: other parent tools, file attachments, and extensions can read files. It does not route shell commands or implement a code-writing worker. No external application dependency is required.

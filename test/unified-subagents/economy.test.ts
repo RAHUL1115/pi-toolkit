@@ -15,7 +15,7 @@ function fixture() {
   const handlers = new Map<string, any>();
   const commands = new Map<string, any>();
   const pi = { on: (n: string, h: any) => handlers.set(n, h), registerCommand: (n: string, h: any) => commands.set(n, h) } as any;
-  const ctx = { cwd: dir, ui: { notify: vi.fn() } } as any;
+  const ctx = { cwd: dir, model: { cost: { input: 2 } }, ui: { notify: vi.fn() } } as any;
   return { dir, file, handlers, commands, pi, ctx };
 }
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -41,6 +41,7 @@ describe("economy", () => {
     expect(await read()).toBeUndefined();
     await command("on");
     expect((await read()).block).toBe(true);
+    expect(f.ctx.ui.notify.mock.lastCall[0]).toMatch(/Economy kept ~[\d,]+ parent-input tokens.*list-price/);
     expect(await read(f.file, { limit: 1 })).toBeUndefined();
     expect((await read(f.file, { offset: 2 })).block).toBe(true);
     await command("allow large.txt");
@@ -53,6 +54,8 @@ describe("economy", () => {
     await command("stats"); expect(f.ctx.ui.notify.mock.lastCall[0]).toContain("permits used 1");
     expect(f.ctx.ui.notify.mock.lastCall[0]).toContain('"input":7');
     expect(f.ctx.ui.notify.mock.lastCall[0]).toContain('"cacheRead":11');
+    expect(f.ctx.ui.notify.mock.lastCall[0]).toMatch(/estimated parent input avoided ~[\d,]+ tokens \/ ~\$0\.\d+ list-price/);
+    expect(f.ctx.ui.notify.mock.lastCall[0]).toContain("before bulk-reader spend and future cache effects");
   });
   it("does not register hooks/commands inside runner-scoped child loading", async () => {
     const f = fixture();

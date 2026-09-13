@@ -8,7 +8,7 @@ export function renderFooter(s: UsageSnapshot, width: number, theme: UsageTheme,
   const padding = Math.min(2, Math.floor(Math.max(0, width) / 2));
   const model = singleLine(s.model.slice(s.model.indexOf("/") + 1));
   const groups = [
-    theme.fg("accent", `🤖 ${model}`),
+    theme.fg("accent", `🤖 ${model}${s.thinking ? `:${singleLine(s.thinking)}` : ""}`),
     theme.fg("muted", `📁 ${singleLine(meta.folder ?? "")}`),
     ...(meta.branch ? [theme.fg("muted", `⎇ ${singleLine(meta.branch)}`)] : []),
     theme.fg((s.context?.percent ?? 0) >= 85 ? "warning" : "muted", `◔ ${s.context?.percent?.toFixed(1) ?? "?"}% [↑${tokens(s.input + s.cacheRead + s.cacheWrite)} ↓${tokens(s.output)}]`),

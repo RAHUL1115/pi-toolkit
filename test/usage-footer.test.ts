@@ -75,8 +75,8 @@ describe("current session usage", () => {
       expect(lines).toHaveLength(1);
       for (const line of [...lines, ...renderUsage(report, 0, width, theme)]) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
     }
-    expect(renderFooter(snapshot, 160, theme, { folder: "project", branch: "main" })[0]).toBe("  🤖 very-long-model-name  📁 project  ⎇ main  ◔ 36.8% [↑80 ↓20]  ⚡ 0.0t/s  $ 1.000  ");
-    expect(renderFooter(snapshot, 160, theme, { folder: "project" })[0]).toBe("  🤖 very-long-model-name  📁 project  ◔ 36.8% [↑80 ↓20]  ⚡ 0.0t/s  $ 1.000  ");
+    expect(renderFooter(snapshot, 160, theme, { folder: "project", branch: "main" })[0]).toBe("  🤖 very-long-model-name:high  📁 project  ⎇ main  ◔ 36.8% [↑80 ↓20]  ⚡ 0.0t/s  $ 1.000  ");
+    expect(renderFooter(snapshot, 160, theme, { folder: "project" })[0]).toBe("  🤖 very-long-model-name:high  📁 project  ◔ 36.8% [↑80 ↓20]  ⚡ 0.0t/s  $ 1.000  ");
     expect(renderFooter({ ...snapshot, missingCosts: 1 }, 160, theme, { folder: "project" })[0]).toContain("$ 1.000+?");
     const dashboard = renderUsage(report, 0, 160, theme).join("\n");
     expect(dashboard).toContain("Total tokens");
@@ -88,7 +88,7 @@ describe("current session usage", () => {
   it("renders the exact approved preview and dims only the TPS suffix", () => {
     const snapshot = { ...usageSnapshot(context()), model: "test/gpt-6-astra", input: 2400, cacheRead: 9000, cacheWrite: 1000, output: 2100, cost: 0.127, context: { tokens: 368, percent: 36.8, contextWindow: 1000 } };
     const fg = vi.fn(theme.fg);
-    expect(renderFooter(snapshot, 160, { ...theme, fg }, { folder: "rahul", branch: "main", tps: 87.4 })[0]).toBe("  🤖 gpt-6-astra  📁 rahul  ⎇ main  ◔ 36.8% [↑12.4k ↓2.1k]  ⚡ 87.4t/s  $ 0.127  ");
+    expect(renderFooter(snapshot, 160, { ...theme, fg }, { folder: "rahul", branch: "main", tps: 87.4 })[0]).toBe("  🤖 gpt-6-astra:high  📁 rahul  ⎇ main  ◔ 36.8% [↑12.4k ↓2.1k]  ⚡ 87.4t/s  $ 0.127  ");
     expect(fg.mock.calls.filter(([color]) => color === "dim")).toEqual([["dim", "t/s"]]);
     expect(fg).toHaveBeenCalledWith("text", "⚡ 87.4");
     for (let width = 4; width < 160; width++) {

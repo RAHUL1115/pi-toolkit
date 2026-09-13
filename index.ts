@@ -863,23 +863,35 @@ export default function piToolkit(pi: ExtensionAPI): void {
 				{
 					id: "autoSessionTitles",
 					label: "Automatic session titles",
-					description: "Refreshes the session name after each turn with an available lightweight model; manual /name values are preserved.",
+					description: "Names the session after each completed turn using an available lightweight model. A manual /name is never overwritten.",
 					currentValue: settings.autoSessionTitles ? "on" : "off",
 					values: ["on", "off"],
 				},
-				{ id: "compactTools", label: "Compact tools", currentValue: settings.compactTools ? "on" : "off", values: ["on", "off"] },
-				{ id: "dollarSkills", label: "Dollar skills", currentValue: settings.dollarSkills ? "on" : "off", values: ["on", "off"] },
+				{
+					id: "compactTools",
+					label: "Compact tools",
+					description: "Groups consecutive read, bash, edit, write, grep, find, and ls calls. Use Ctrl+O to expand and Alt+O to change the collapsed layout.",
+					currentValue: settings.compactTools ? "on" : "off",
+					values: ["on", "off"],
+				},
+				{
+					id: "dollarSkills",
+					label: "Dollar skills",
+					description: "Lets a line such as $ponytail $tdd activate those skills and start a turn, with fuzzy $ autocomplete.",
+					currentValue: settings.dollarSkills ? "on" : "off",
+					values: ["on", "off"],
+				},
 				{
 					id: "ctrlBackspace",
 					label: "Ctrl+Backspace word delete",
-					description: "Adds Ctrl+Backspace to Pi's delete-word keybind in VS Code and Windows Terminal.",
+					description: "Makes Ctrl+Backspace delete the previous word in supported Windows terminals; it has no effect elsewhere.",
 					currentValue: settings.ctrlBackspace ? "on" : "off",
 					values: ["on", "off"],
 				},
 			];
 			await ctx.ui.custom((tui, theme, _kb, done) => {
 				const container = new Container();
-				container.addChild(new Text(theme.fg("accent", theme.bold("Pi Toolkit Workflow Settings")), 1, 1));
+				container.addChild(new Text(theme.fg("accent", theme.bold("Pi Toolkit Settings")), 1, 1));
 				const list = new SettingsList(
 					items,
 					items.length + 2,

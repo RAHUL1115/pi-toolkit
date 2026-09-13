@@ -7,6 +7,7 @@ export default defineConfig({
     // Real-Pi suites construct nested sessions and are CPU-heavy on Windows.
     // Running files concurrently starves individual 30s guards and leaves
     // timed-out worktrees/sessions behind; serialize files for deterministic cleanup.
+    // The full suite can take 6-10 minutes here; use at least a 10-minute watchdog.
     fileParallelism: false,
     server: { deps: { inline: [/@earendil-works\/pi-/] } },
     coverage: {

@@ -185,7 +185,7 @@ describe("background bash", () => {
 		const viewer = new BackgroundTaskViewer({ requestRender: () => {} } as any, controller, testTheme(), () => {});
 
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 4-8/8 · following tail");
-		viewer.handleInput("k");
+		viewer.handleInput("\u001b[1;7A");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 3-7/8 · paused");
 		controller.outputs.set("bash-1", "1\n2\n3\n4\n5\n6\n7\n8\n9");
 		controller.emitOutput("bash-1");
@@ -201,9 +201,11 @@ describe("background bash", () => {
 		viewer.handleInput("\u001b[1;2A");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
 		viewer.handleInput("\u001b[1;3B");
-		viewer.handleInput("k");
+		viewer.handleInput("\u001b[1;7A");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 4-8/9 · paused");
-		viewer.handleInput("j");
+		viewer.handleInput("\u001b[1;7B");
+		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
+		viewer.handleInput("k");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
 
 		controller.items.reverse();

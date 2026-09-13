@@ -216,9 +216,9 @@ export class BackgroundTaskViewer {
 			this.select(tasks, this.selectedIndex - 1);
 		} else if (matchesKey(data, "down")) {
 			this.select(tasks, this.selectedIndex + 1);
-		} else if (matchesKey(data, "k")) {
+		} else if (matchesKey(data, "ctrl+alt+up")) {
 			this.scrollOutput(-1);
-		} else if (matchesKey(data, "j")) {
+		} else if (matchesKey(data, "ctrl+alt+down")) {
 			this.scrollOutput(1);
 		} else if (matchesKey(data, "shift+up") || matchesKey(data, "pageUp")) {
 			this.scrollOutput(-PREVIEW_LINES);
@@ -288,7 +288,7 @@ export class BackgroundTaskViewer {
 			else for (const line of preview) lines.push(row(this.theme.fg("muted", line)));
 			lines.push(separator);
 		}
-		let help = "↑↓ tasks · J/K lines · ⇧↑↓ pages · Alt↑↓ top/end · x stop · c/Del clear · C clear finished";
+		let help = "↑↓ tasks · Ctrl+Alt+↑↓ lines · ⇧↑↓ pages · Alt+↑↓ top/end · x stop · c/Del clear · C clear finished";
 		if (this.armed?.kind === "stop") help = "Press x again to stop this task (output will be retained)";
 		else if (this.armed?.kind === "clear") help = `Press ${this.armed.key === "delete" ? "Delete" : "c"} again to clear this finished task`;
 		else if (this.armed?.kind === "clear-all") help = "Press C again to clear all finished tasks";

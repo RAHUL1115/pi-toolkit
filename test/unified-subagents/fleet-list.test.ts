@@ -628,7 +628,7 @@ describe("FleetList rendering", () => {
     const lines = h.render(200);
     const summary = lines.find(line => line.includes("Sleep then report 1"))!;
     expect(summary).toContain("[running command]");
-    expect(summary).toContain("3 tool uses · ↓ 13.1k token");
+    expect(summary).toContain("3 tool uses · ↻ 2 · ↓ 13.1k token");
     expect(summary).toContain("<warning>73%</warning>");
     expect(summary).toMatch(/ · \d+s/);
     expect(lines).toHaveLength(3);
@@ -817,6 +817,10 @@ describe("FleetList cost display", () => {
       lifetimeUsage: { input: 1, output: 1, cacheWrite: 0, cost: 0.9 },
     } as unknown as AgentActivity]]);
 
-    expect(row(true, 0.0042, tracked)).toBe(row(true, 0.0042));
+    const live = row(true, 0.0042, tracked);
+    expect(live).toContain("↻ 1");
+    expect(live).toContain("13.1k token");
+    expect(live).toContain("~$0.0042");
+    expect(live).not.toContain("~$0.9000");
   });
 });

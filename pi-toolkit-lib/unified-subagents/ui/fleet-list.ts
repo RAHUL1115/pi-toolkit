@@ -532,7 +532,7 @@ export class FleetList {
     const cost = this.showCost() ? formatCost(getLifetimeCost(record.lifetimeUsage)) : "";
     const stats = [
       toolUses > 0 ? `${toolUses} tool use${toolUses === 1 ? "" : "s"}` : "",
-      activity?.turnCount && activity.maxTurns != null ? formatTurns(activity.turnCount, activity.maxTurns) : "",
+      activity?.turnCount ? formatTurns(activity.turnCount, activity.maxTurns) : "",
       tokenText,
       cost,
       formatFleetElapsed(elapsedMs),

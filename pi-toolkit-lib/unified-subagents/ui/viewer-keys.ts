@@ -3,7 +3,7 @@
  *
  * Resolves `tui.select.*` through the user's keybindings when pi provides a
  * manager, falling back to the previous hardcoded keys otherwise. The viewer's
- * k/j and shift+arrow aliases always work alongside whatever is bound.
+ * k/j line aliases and Alt+arrow page bindings always work alongside whatever is bound.
  */
 
 import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
@@ -35,8 +35,8 @@ export function createViewerKeys(keybindings?: ViewerKeybindings): ViewerKeys {
   return {
     scrollUp: (data) => matches(data, "tui.select.up", "up") || matchesKey(data, "k"),
     scrollDown: (data) => matches(data, "tui.select.down", "down") || matchesKey(data, "j"),
-    pageUp: (data) => matches(data, "tui.select.pageUp", "pageUp") || matchesKey(data, "shift+up"),
-    pageDown: (data) => matches(data, "tui.select.pageDown", "pageDown") || matchesKey(data, "shift+down"),
+    pageUp: (data) => matchesKey(data, "alt+up") || matches(data, "tui.select.pageUp", "pageUp"),
+    pageDown: (data) => matchesKey(data, "alt+down") || matches(data, "tui.select.pageDown", "pageDown"),
     toggleTools: (data) => matches(data, "app.tools.expand", "ctrl+o"),
   };
 }

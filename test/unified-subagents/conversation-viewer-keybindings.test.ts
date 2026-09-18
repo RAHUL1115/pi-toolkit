@@ -9,14 +9,14 @@ const CTRL_P = "\x10";
 const CTRL_N = "\x0e";
 const UP = "\x1b[A";
 const DOWN = "\x1b[B";
-const SHIFT_UP = "\x1b[1;2A";
-const SHIFT_DOWN = "\x1b[1;2B";
 const PAGE_UP = "\x1b[5~";
 const PAGE_DOWN = "\x1b[6~";
 const HOME = "\x1b[H";
 const END = "\x1b[F";
 const CTRL_HOME = "\x1b[1;5H";
 const CTRL_END = "\x1b[1;5F";
+const CTRL_UP = "\x1b[1;5A";
+const CTRL_DOWN = "\x1b[1;5B";
 const ALT_UP = "\x1b[1;3A";
 const ALT_DOWN = "\x1b[1;3B";
 
@@ -89,12 +89,12 @@ describe("viewer-keys", () => {
     expect(keys.toggleTools("\x0f")).toBe(false);
   });
 
-  it("keeps the k/j and shift+arrow aliases with and without a manager", () => {
+  it("keeps the k/j line aliases and Alt+arrow page bindings with and without a manager", () => {
     for (const keys of [createViewerKeys(), createViewerKeys(createEmacsKeybindings())]) {
       expect(keys.scrollUp("k")).toBe(true);
       expect(keys.scrollDown("j")).toBe(true);
-      expect(keys.pageUp(SHIFT_UP)).toBe(true);
-      expect(keys.pageDown(SHIFT_DOWN)).toBe(true);
+      expect(keys.pageUp(ALT_UP)).toBe(true);
+      expect(keys.pageDown(ALT_DOWN)).toBe(true);
     }
   });
 
@@ -130,14 +130,14 @@ describe("ConversationViewer custom keybindings", () => {
     expect(scrollOffset(viewer)).toBe(bottom);
   });
 
-  it("pages the internal transcript with shifted arrows", () => {
+  it("pages the internal transcript with Alt+Up/Down", () => {
     const viewer = createViewer(createEmacsKeybindings());
     const bottom = scrollOffset(viewer);
     const page = (viewer as any).viewportHeight();
 
-    viewer.handleInput(SHIFT_UP);
+    viewer.handleInput(ALT_UP);
     expect(scrollOffset(viewer)).toBe(bottom - page);
-    viewer.handleInput(SHIFT_DOWN);
+    viewer.handleInput(ALT_DOWN);
     expect(scrollOffset(viewer)).toBe(bottom);
   });
 
@@ -165,9 +165,9 @@ describe("ConversationViewer custom keybindings", () => {
   });
 
   it.each([
+    [CTRL_UP, CTRL_DOWN],
     [HOME, END],
     [CTRL_HOME, CTRL_END],
-    [ALT_UP, ALT_DOWN],
   ])("jumps directly to the transcript top and bottom", (top, bottom) => {
     const viewer = createViewer();
     const bottomOffset = scrollOffset(viewer);

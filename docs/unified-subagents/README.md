@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/8685261b-9338-4fea-8dfe-1c590d5df543
 - **Parallel background agents** — spawn multiple agents that run concurrently with automatic queuing (configurable concurrency limit, default 10) and smart group join (consolidated notifications)
 - **Single activity UI** — FleetView is the only live progress surface while enabled, avoiding duplicate above-editor status
 - **FleetView** — tabbed running Tasks and running/queued Agents lists below the editor; agent rows include tool uses, turn/token/context usage, elapsed time, and current activity, while task rows open the existing `/tasks` detail view
-- **Full-screen conversation viewer** — every harness opens in the same full-terminal, live-scrolling transcript viewer with thinking, bounded tool-argument previews, visible tool errors, steering, stopping, `Home`/`Ctrl+Home` and `End`/`Ctrl+End` transcript jumps, and Ctrl+C/Esc/q close behavior
+- **Full-screen conversation viewer** — every harness opens in the same full-terminal, live-scrolling transcript viewer with thinking, bounded tool-argument previews, visible tool errors, steering, stopping, Up/Down line scrolling, Alt+Up/Down page scrolling, Ctrl+Up/Down transcript jumps, and Ctrl+C/Esc/q close behavior
 - **One configurable Light model** — a fast, low-cost model for straightforward low-intelligence work, with selectable thinking that defaults to `low`; task nature selects `Explore` or `general-purpose`
 - **Custom agent types** — define agents in `.pi/agents/<name>.md` or `.agents/agents/<name>.md` (project) or globally, with YAML frontmatter including model, tools, harness, and Claude Code-compatible colored name badges
 - **Nested subagents (Pi harness)** — opt-in delegation with ownership-scoped tools, depth limits, cleanup, and usage rollup; native harnesses reject tracked nesting explicitly
@@ -135,16 +135,9 @@ The first `↓` always focuses the tabs—even when only one category exists—a
 
 Only running tasks and running/queued top-level agents appear. Agent rows are ordered earliest-launched first, tag native children with `(claude)` or `(codex)`, and carry tool-use count, token/context usage, elapsed time, and current activity. Task rows carry title, task ID, and elapsed time. Non-empty prompt input behaves normally. Disable it via `/agents → Settings → Activity view` to hide the shared surface.
 
-#### Zed terminal key routing
+#### Conversation navigation
 
-Zed binds Shift+Up/Down to terminal scrollback, so those keys never reach the full-screen agent viewer unless overridden. Add these bindings inside a `Terminal` context in `~/.config/zed/keymap.json` (alongside any existing terminal bindings):
-
-```json
-"shift-up": ["terminal::SendText", "\\u001b[1;2A"],
-"shift-down": ["terminal::SendText", "\\u001b[1;2B"]
-```
-
-After Zed reloads the keymap, Shift+Up/Down pages the internal agent transcript. Page Up/Page Down remain equivalent aliases without this override.
+In the full-screen agent viewer, Up/Down scroll one line, Alt+Up/Down scroll one page, and Ctrl+Up/Down jump to the transcript start/end. Page Up/Page Down and Home/End remain aliases.
 
 ### Agent mentions
 

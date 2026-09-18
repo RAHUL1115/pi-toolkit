@@ -253,24 +253,24 @@ export class ConversationViewer implements Component {
     const viewportHeight = this.viewportHeight();
     const maxScroll = Math.max(0, totalLines - viewportHeight);
 
-    if (this.keys.scrollUp(data)) {
-      this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-      this.autoScroll = this.scrollOffset >= maxScroll;
-    } else if (this.keys.scrollDown(data)) {
-      this.scrollOffset = Math.min(maxScroll, this.scrollOffset + 1);
-      this.autoScroll = this.scrollOffset >= maxScroll;
+    if (matchesKey(data, "ctrl+up") || matchesKey(data, "home") || matchesKey(data, "ctrl+home")) {
+      this.scrollOffset = 0;
+      this.autoScroll = false;
+    } else if (matchesKey(data, "ctrl+down") || matchesKey(data, "end") || matchesKey(data, "ctrl+end")) {
+      this.scrollOffset = maxScroll;
+      this.autoScroll = true;
     } else if (this.keys.pageUp(data)) {
       this.scrollOffset = Math.max(0, this.scrollOffset - viewportHeight);
       this.autoScroll = false;
     } else if (this.keys.pageDown(data)) {
       this.scrollOffset = Math.min(maxScroll, this.scrollOffset + viewportHeight);
       this.autoScroll = this.scrollOffset >= maxScroll;
-    } else if (matchesKey(data, "home") || matchesKey(data, "ctrl+home") || matchesKey(data, "alt+up")) {
-      this.scrollOffset = 0;
-      this.autoScroll = false;
-    } else if (matchesKey(data, "end") || matchesKey(data, "ctrl+end") || matchesKey(data, "alt+down")) {
-      this.scrollOffset = maxScroll;
-      this.autoScroll = true;
+    } else if (this.keys.scrollUp(data)) {
+      this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+      this.autoScroll = this.scrollOffset >= maxScroll;
+    } else if (this.keys.scrollDown(data)) {
+      this.scrollOffset = Math.min(maxScroll, this.scrollOffset + 1);
+      this.autoScroll = this.scrollOffset >= maxScroll;
     }
   }
 
@@ -367,7 +367,7 @@ export class ConversationViewer implements Component {
         actions.push(this.stopArmed ? th.fg("error", "x again to STOP") : th.fg("dim", "x stop"));
       }
       actions.push(th.fg("dim", `m ${MARKDOWN_MODE_LABELS[this.markdownMode()]}`));
-      const footerRight = th.fg("dim", "↑↓/⇧↑↓/Alt↑↓ · Esc close");
+      const footerRight = th.fg("dim", "↑↓ lines · Alt+↑↓ pages · Ctrl+↑↓ top/end · Esc close");
 
       // Prepend the line-count/scroll-% readout only when there's spare width —
       // it's the first thing dropped so it never crowds out the hints.

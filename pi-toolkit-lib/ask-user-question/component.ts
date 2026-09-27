@@ -1,11 +1,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
-  Editor,
-  type EditorTheme,
+  Input,
   Key,
   matchesKey,
-  type TUI,
   truncateToWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
@@ -44,7 +42,7 @@ export class AskUserQuestionComponent implements Component {
 
   private states: QuestionState[];
   private activeTab: number = 0;
-  private editor: Editor;
+  private editor: Input;
 
   // Render cache
   private cachedWidth?: number;
@@ -73,23 +71,7 @@ export class AskUserQuestionComponent implements Component {
       inEditMode: false,
     }));
 
-    const editorTheme: EditorTheme = {
-      borderColor: (s) => theme.fg("muted", s),
-      selectList: {
-        selectedPrefix: (s) => theme.fg("accent", s),
-        selectedText: (s) => theme.fg("accent", s),
-        description: (s) => theme.fg("muted", s),
-        scrollInfo: (s) => theme.fg("dim", s),
-        noMatch: (s) => theme.fg("warning", s),
-      },
-    };
-
-    this.editor = new Editor(tui as TUI, editorTheme);
-    this.editor.disableSubmit = true;
-    this.editor.onChange = () => {
-      this.invalidate();
-      this.tui.requestRender();
-    };
+    this.editor = new Input();
 
     this.invalidate();
   }
@@ -238,32 +220,18 @@ export class AskUserQuestionComponent implements Component {
         const labelColor = isSelected ? "accent" : "text";
         add(`${prefix} ${box} ${t.fg(labelColor, `${i + 1}. ${opt.label}`)}`);
       } else if (isOther) {
-        // "Type your own answer..." row — check/box matches sibling row format
+        // The last option is the input, not a separate editor below the list.
         const hasFreeText = state.freeTextValue !== null && !state.inEditMode;
+        const box = q.multiSelect
+          ? hasFreeText ? t.fg("success", "[✓]") : t.fg("dim", "[ ]")
+          : hasFreeText ? t.fg("success", "✓") : " ";
+        const label = `${i + 1}. ${opt.label}${isSelected ? " " : ""}`;
+        const available = Math.max(4, width - (q.multiSelect ? 6 : 4) - label.length);
+        const value = isSelected && (state.inEditMode || !hasFreeText)
+          ? this.editor.render(available)[0].slice(2).trimEnd()
+          : state.freeTextValue ?? "";
         const suffix = state.inEditMode ? t.fg("accent", " ✎") : "";
-        const labelColor = isSelected ? "accent" : "muted";
-        if (q.multiSelect) {
-          // Match multi-select box format: prefix + ' ' + box(3) + ' ' + label
-          const box = hasFreeText ? t.fg("success", "[✓]") : t.fg("dim", "[ ]");
-          add(
-            `${prefix} ${box} ${t.fg(labelColor, `${i + 1}. ${opt.label}`)}${suffix}`,
-          );
-        } else {
-          // Match single-select format: prefix + ' ' + check(1) + ' ' + label
-          const check = hasFreeText ? t.fg("success", "✓") : " ";
-          add(
-            `${prefix} ${check} ${t.fg(labelColor, `${i + 1}. ${opt.label}`)}${suffix}`,
-          );
-        }
-        // Preview of saved text below, no ✓ here
-        if (hasFreeText) {
-          const indent = q.multiSelect ? "       " : "     ";
-          const preview = truncateToWidth(
-            state.freeTextValue ?? "",
-            width - indent.length,
-          );
-          add(`${indent}${t.fg("dim", `"${preview}"`)}`);
-        }
+        add(`${prefix} ${box} ${t.fg(isSelected ? "accent" : "muted", label)}${t.fg("text", value)}${suffix}`);
       } else {
         // Single-select — show ✓ on the confirmed selection
         const isConfirmedChoice = state.selectedIndex === i;
@@ -285,27 +253,17 @@ export class AskUserQuestionComponent implements Component {
       }
     }
 
-    // Inline editor (when in edit mode)
-    if (state.inEditMode) {
-      add("");
-      add(t.fg("muted", " Your answer:"));
-      const editorLines = this.editor.render(width - 4);
-      for (const line of editorLines) {
-        add(` ${line}`);
-      }
-    }
-
     add("");
 
     // Footer help — context-sensitive based on cursor position
     if (state.inEditMode) {
-      add(t.fg("dim", " Enter submit · Esc back"));
+      add(t.fg("dim", " Enter submit · ↑ previous option · Esc back"));
     } else {
       const onOther = state.cursorIndex === opts.length - 1;
       const tabHint = this.isSingle ? "" : " · ←→ switch tabs";
       let actionHint: string;
       if (onOther) {
-        actionHint = "Space/Tab open editor";
+        actionHint = "Type answer · Enter submit";
       } else if (q.multiSelect) {
         actionHint = "Space toggle · Enter confirm";
       } else {
@@ -400,11 +358,13 @@ export class AskUserQuestionComponent implements Component {
   private enterEditMode(): void {
     const state = this.states[this.activeTab];
     state.inEditMode = true;
+    this.editor.focused = true;
     // Restore previous free-text value if any
     if (state.freeTextValue !== null) {
-      this.editor.setText(state.freeTextValue);
+      this.editor.setValue("");
+      this.editor.handleInput(state.freeTextValue);
     } else {
-      this.editor.setText("");
+      this.editor.setValue("");
     }
     this.invalidate();
     this.tui.requestRender();
@@ -413,7 +373,7 @@ export class AskUserQuestionComponent implements Component {
   private exitEditMode(save: boolean): void {
     const state = this.states[this.activeTab];
     if (save) {
-      state.freeTextValue = this.editor.getText().trim();
+      state.freeTextValue = this.editor.getValue().trim();
       // Free-text replaces any prior regular-option selection — clear the ✓ indicator
       state.selectedIndex = null;
     } else {
@@ -423,8 +383,9 @@ export class AskUserQuestionComponent implements Component {
         state.freeTextValue = null;
       }
     }
-    this.editor.setText("");
+    this.editor.setValue("");
     state.inEditMode = false;
+    this.editor.focused = false;
     this.invalidate();
   }
 
@@ -531,22 +492,21 @@ export class AskUserQuestionComponent implements Component {
 
     // ── Edit mode: route to inline editor ──────────────────────────────────────
     if (state.inEditMode) {
+      if (matchesKey(data, Key.up)) {
+        this.exitEditMode(false);
+        this.moveCursor(-1);
+        return;
+      }
       if (matchesKey(data, Key.escape)) {
         this.exitEditMode(false);
         this.tui.requestRender();
         return;
       }
       if (matchesKey(data, Key.enter)) {
-        const text = this.editor.getText().trim();
+        const text = this.editor.getValue().trim();
         if (text) {
           this.exitEditMode(true);
-          // Multi-select: just return to options so user can still toggle checkboxes
-          // Single-select: auto-confirm since free-text is the only answer
-          if (!q.multiSelect) {
-            this.confirmAndAdvance();
-          } else {
-            this.tui.requestRender();
-          }
+          this.confirmAndAdvance();
         } else {
           // Empty text — clear any previously saved free-text answer
           state.freeTextValue = null;
@@ -606,15 +566,19 @@ export class AskUserQuestionComponent implements Component {
     const opts = this.allOptions(q);
     const onOther = state.cursorIndex === opts.length - 1;
 
-    // "Type your own answer..." — Space or Tab opens the editor
-    // Enter confirms if there's already a saved free-text answer
+    // Type directly into the visible answer box; Space/Tab still work as shortcuts.
     if (onOther) {
+      if (matchesKey(data, Key.enter) && state.freeTextValue !== null) {
+        this.confirmAndAdvance();
+        return;
+      }
       if (matchesKey(data, Key.space) || matchesKey(data, Key.tab)) {
         this.enterEditMode();
         return;
       }
-      if (matchesKey(data, Key.enter) && state.freeTextValue !== null) {
-        this.confirmAndAdvance();
+      if (([...data].length === 1 && data >= " " && data !== "\x7f") || data.startsWith("\x1b[200~")) {
+        this.enterEditMode();
+        this.editor.handleInput(data);
         return;
       }
     }

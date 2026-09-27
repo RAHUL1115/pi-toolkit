@@ -132,6 +132,18 @@ describe("render — single question", () => {
     expect(lines.some((l) => l.includes("Type your own answer..."))).toBe(true);
   });
 
+  it("dims the placeholder but not the typed answer", () => {
+    const theme = {
+      ...mockTheme,
+      fg: (color: string, text: string) => `[${color}]${text}`,
+    } as unknown as Theme;
+    const c = new AskUserQuestionComponent([singleSelect], mockTui, theme, () => {});
+    for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
+    expect(c.render(80).join("\n")).toContain("[dim]Type your own answer...");
+    c.handleInput("M");
+    expect(c.render(80).join("\n")).toContain("[text]M");
+  });
+
   it("renders option descriptions", () => {
     const lines = make([singleSelect]).render(80);
     expect(lines.some((l) => l.includes("Battle-tested relational DB"))).toBe(
@@ -491,7 +503,8 @@ describe("handleInput — free-text mode", () => {
     for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
     expect(c.render(80).some((line) => line.includes("Your answer:"))).toBe(false);
     c.handleInput("M");
-    expect(c.render(80).some((line) => line.includes("Type your own answer") && line.includes("M"))).toBe(true);
+    expect(c.render(80).some((line) => /^>.*4\. M/.test(stripAnsi(line)))).toBe(true);
+    expect(c.render(80).join("\n")).not.toContain("Type your own answer...");
     c.handleInput(INPUT.up);
     const lines = c.render(80);
     expect(lines.some((line) => /^>.*DuckDB/.test(line))).toBe(true);
@@ -513,30 +526,27 @@ describe("handleInput — free-text mode", () => {
     expect(resolved?.answers[singleSelect.question]).toBe("MySQL");
   });
 
-  it("Space on 'Type your own answer...' enters edit mode — render shows ✎", () => {
-    const c = make([singleSelect]);
-    // Navigate to last option
-    for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
-    c.handleInput(INPUT.space);
-    const lines = c.render(80);
-    expect(lines.some((l) => l.includes("✎"))).toBe(true);
-  });
-
-  it("Space on 'Type your own answer...' also enters edit mode", () => {
+  it("Space starts editing the selected option in place", () => {
     const c = make([singleSelect]);
     for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
     c.handleInput(INPUT.space);
-    const lines = c.render(80);
-    expect(lines.some((l) => l.includes("✎"))).toBe(true);
+    c.handleInput("M");
+    expect(c.render(80).some((line) => /^>.*4\. M/.test(stripAnsi(line)))).toBe(true);
   });
 
-  it("Esc in edit mode exits without confirming — ✎ gone", () => {
+  it("pasted text replaces the placeholder on the same row", () => {
     const c = make([singleSelect]);
     for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
-    c.handleInput(INPUT.space); // open editor
-    c.handleInput(INPUT.escape); // exit
-    const lines = c.render(80);
-    expect(lines.some((l) => l.includes("✎"))).toBe(false);
+    c.handleInput("\x1b[200~A long answer\x1b[201~");
+    expect(c.render(80).some((line) => /^>.*4\. A long answer/.test(stripAnsi(line)))).toBe(true);
+  });
+
+  it("Esc in edit mode restores the placeholder", () => {
+    const c = make([singleSelect]);
+    for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
+    c.handleInput("M");
+    c.handleInput(INPUT.escape);
+    expect(c.render(80).some((line) => /^>.*Type your own answer/.test(stripAnsi(line)))).toBe(true);
   });
 
   it("Esc in edit mode does not call done", () => {
@@ -1020,11 +1030,9 @@ describe("single-select: free-text then pick regular option", () => {
     const pgLines = lines.filter((l) => l.includes("PostgreSQL"));
     expect(pgLines.length).toBeGreaterThan(0);
     for (const l of pgLines) expect(l).not.toMatch(/✓/);
-    // ✓ should be on the "Type your own answer..." row, preview text on the line below
-    expect(
-      lines.some((l) => l.includes("✓") && l.includes("Type your own answer")),
-    ).toBe(true);
-    expect(lines.some((l) => l.includes("mytext"))).toBe(true);
+    // The answer replaces the placeholder in the checked row.
+    expect(lines.some((l) => l.includes("✓") && l.includes("mytext"))).toBe(true);
+    expect(lines.some((l) => l.includes("Type your own answer"))).toBe(false);
   });
 
   it("navigating back and selecting a regular option clears free-text", () => {

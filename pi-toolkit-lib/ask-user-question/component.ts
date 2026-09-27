@@ -225,13 +225,14 @@ export class AskUserQuestionComponent implements Component {
         const box = q.multiSelect
           ? hasFreeText ? t.fg("success", "[✓]") : t.fg("dim", "[ ]")
           : hasFreeText ? t.fg("success", "✓") : " ";
-        const label = `${i + 1}. ${opt.label}${isSelected ? " " : ""}`;
+        const hasTypedText = state.inEditMode && this.editor.getValue().length > 0;
+        const label = `${i + 1}. `;
         const available = Math.max(4, width - (q.multiSelect ? 6 : 4) - label.length);
-        const value = isSelected && (state.inEditMode || !hasFreeText)
+        const value = isSelected && state.inEditMode
           ? this.editor.render(available)[0].slice(2).trimEnd()
           : state.freeTextValue ?? "";
-        const suffix = state.inEditMode ? t.fg("accent", " ✎") : "";
-        add(`${prefix} ${box} ${t.fg(isSelected ? "accent" : "muted", label)}${t.fg("text", value)}${suffix}`);
+        const display = hasTypedText || hasFreeText ? value : opt.label;
+        add(`${prefix} ${box} ${t.fg(isSelected ? "accent" : "muted", label)}${t.fg(hasTypedText || hasFreeText ? "text" : "dim", display)}`);
       } else {
         // Single-select — show ✓ on the confirmed selection
         const isConfirmedChoice = state.selectedIndex === i;

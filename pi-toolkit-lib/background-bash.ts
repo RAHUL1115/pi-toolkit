@@ -16,6 +16,8 @@ import {
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { getLightModel } from "./unified-subagents/settings.js";
+import { selectLiteModel } from "./session-title.js";
 import {
 	BackgroundTaskViewer,
 	type BackgroundTaskController,
@@ -29,6 +31,8 @@ export const DEFAULT_FINISHED_TASKS = 50;
 const DEFAULT_TERMINATION_GRACE_MS = 250;
 const DEFAULT_TERMINATION_TIMEOUT_MS = 5_000;
 const EXIT_STDIO_GRACE_MS = 100;
+const MAX_TIMEOUT_EXTENSIONS = 3;
+const MAX_EXTENSION_SECONDS = 3600;
 const OUTPUT_CAP_MARKER = Buffer.from("\n[Background task log limit reached; use bash_output for the recent tail.]\n");
 const OUTPUT_TAIL_BYTES = DEFAULT_MAX_BYTES * 4;
 const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
@@ -36,7 +40,7 @@ const UNSAFE_OUTPUT_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u
 
 const backgroundBashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
-	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+	timeout: Type.Optional(Type.Number({ description: "First review deadline in seconds (optional; no default deadline). A fast model may grant up to three bounded extensions before the command is stopped." })),
 	run_in_background: Type.Optional(Type.Boolean({ description: "Run asynchronously and return a background task ID" })),
 	title: Type.Optional(Type.String({ description: "Optional task title shown in /tasks (maximum 80 characters)", maxLength: 80 })),
 });
@@ -66,6 +70,9 @@ type Job = {
 	error?: string;
 	timeoutSeconds?: number;
 	timeout?: NodeJS.Timeout;
+	timeoutReviews: number;
+	reviewedBytes: number;
+	extensions: number[];
 	autoBackground?: NodeJS.Timeout;
 	background: boolean;
 	foreground?: ForegroundWaiter;
@@ -83,7 +90,19 @@ type Job = {
 	cleanup?: Promise<void>;
 };
 
+export type TimeoutReview = (context: {
+	command: string;
+	elapsedSeconds: number;
+	originalTimeoutSeconds: number;
+	reviewsUsed: number;
+	maxExtensions: number;
+	extensions: readonly number[];
+	newOutputBytes: number;
+	output: string;
+}) => Promise<number | undefined>;
+
 export type BackgroundBashManagerOptions = {
+	reviewTimeout?: TimeoutReview;
 	maxLogBytes?: number;
 	maxFinishedJobs?: number;
 	terminationGraceMs?: number;
@@ -190,8 +209,9 @@ function describe(job: Job, output = ""): string {
 	const elapsed = ((job.endedAt ?? Date.now()) - job.startedAt) / 1000;
 	const exit = job.exitCode === undefined ? "" : `, exit ${job.exitCode ?? "signal"}`;
 	const error = job.error ? `\nError: ${sanitizeTaskLabel(job.error)}` : "";
+	const reviews = job.timeoutReviews ? `\nTimeout reviews: ${job.timeoutReviews}/${MAX_TIMEOUT_EXTENSIONS}; extensions: ${job.extensions.join(", ") || "none"} seconds` : "";
 	const body = output ? `\n\n${output}` : "\n\n(no output yet)";
-	return `${job.id}: ${job.status}${exit}, PID ${job.pid ?? "unknown"}, ${elapsed.toFixed(1)}s\nOutput: ${job.outputPath}${error}${body}`;
+	return `${job.id}: ${job.status}${exit}, PID ${job.pid ?? "unknown"}, ${elapsed.toFixed(1)}s\nOutput: ${job.outputPath}${error}${reviews}${body}`;
 }
 
 export class BackgroundBashManager {
@@ -203,6 +223,7 @@ export class BackgroundBashManager {
 	private readonly terminationGraceMs: number;
 	private readonly terminationTimeoutMs: number;
 	private readonly tempDirectory: string;
+	private readonly reviewTimeout?: TimeoutReview;
 	private nextId = 1;
 	private disposed = false;
 	private shutdown?: Promise<void>;
@@ -219,6 +240,7 @@ export class BackgroundBashManager {
 		this.terminationGraceMs = options.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS;
 		this.terminationTimeoutMs = options.terminationTimeoutMs ?? DEFAULT_TERMINATION_TIMEOUT_MS;
 		this.tempDirectory = options.tempDirectory ?? tmpdir();
+		this.reviewTimeout = options.reviewTimeout;
 		if (!Number.isInteger(this.maxLogBytes) || this.maxLogBytes <= 0) throw new Error("maxLogBytes must be a positive integer");
 		if (!Number.isInteger(this.maxFinishedJobs) || this.maxFinishedJobs < 0) throw new Error("maxFinishedJobs must be a non-negative integer");
 	}
@@ -352,6 +374,9 @@ export class BackgroundBashManager {
 			startedAt: Date.now(),
 			status: "running",
 			timeoutSeconds,
+			timeoutReviews: 0,
+			reviewedBytes: 0,
+			extensions: [],
 			background,
 			bytesWritten: 0,
 			droppedBytes: 0,
@@ -431,16 +456,54 @@ export class BackgroundBashManager {
 			this.emitRunningCount();
 			this.emit("list", job.id);
 		} else this.foregroundJobs.set(job.id, job);
-		if (timeoutSeconds !== undefined) {
-			job.timeout = setTimeout(() => {
-				void this.terminate(job, "timed_out").catch((error) => {
-					job.error = error instanceof Error ? error.message : String(error);
-					this.emit("list", job.id);
-				});
-			}, timeoutSeconds * 1000);
-			job.timeout.unref();
-		}
+		if (timeoutSeconds !== undefined) this.scheduleTimeout(job, timeoutSeconds);
+
 		return job;
+	}
+
+	private scheduleTimeout(job: Job, seconds: number): void {
+		job.timeout = setTimeout(() => {
+			job.timeout = undefined;
+			void this.reviewOrTerminate(job);
+		}, seconds * 1000);
+		job.timeout.unref();
+	}
+
+	private async reviewOrTerminate(job: Job): Promise<void> {
+		if (job.status !== "running" || job.terminationStatus) return;
+		let extension: number | undefined;
+		if (this.reviewTimeout && job.timeoutReviews < MAX_TIMEOUT_EXTENSIONS) {
+			job.timeoutReviews++;
+			const newOutputBytes = job.bytesWritten - job.reviewedBytes;
+			job.reviewedBytes = job.bytesWritten;
+			try {
+				extension = await this.reviewTimeout({
+					command: job.command.slice(0, 1000),
+					elapsedSeconds: (Date.now() - job.startedAt) / 1000,
+					originalTimeoutSeconds: job.timeoutSeconds!,
+					reviewsUsed: job.timeoutReviews,
+					maxExtensions: MAX_TIMEOUT_EXTENSIONS,
+					extensions: [...job.extensions],
+					newOutputBytes,
+					output: readOutput(job).slice(-4000),
+				});
+			} catch (error) {
+				job.error = `Timeout review failed: ${error instanceof Error ? error.message : String(error)}`;
+			}
+		}
+		if (job.status !== "running" || job.terminationStatus || this.disposed) return;
+		if (typeof extension === "number" && Number.isFinite(extension) && extension >= 1 && extension <= MAX_EXTENSION_SECONDS) {
+			job.extensions.push(extension);
+			this.scheduleTimeout(job, extension);
+			this.emit("list", job.id);
+			return;
+		}
+		try {
+			await this.terminate(job, "timed_out");
+		} catch (error) {
+			job.error = error instanceof Error ? error.message : String(error);
+			this.emit("list", job.id);
+		}
 	}
 
 	private async afterClosed(job: Job): Promise<void> {
@@ -681,6 +744,23 @@ export type BackgroundBashToolDefinition = ToolDefinition<any, any, any> & {
 };
 
 export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), autoBackgroundMs = 60_000): BackgroundBashToolDefinition {
+	let latestContext: ExtensionContext | undefined;
+	const reviewTimeout: TimeoutReview = async (details) => {
+		const registry = latestContext?.modelRegistry;
+		if (!registry) return undefined;
+		const available = registry.getAvailable();
+		const configured = getLightModel();
+		const model = available.find((candidate) => `${candidate.provider}/${candidate.id}` === configured)
+			?? selectLiteModel(available);
+		if (!model) return undefined;
+		const response = await registry.complete(model, {
+			systemPrompt: `You only decide whether an already-running Bash command needs more time. No tools are available. Return ONLY JSON: {"extend_seconds": number} to continue or {"extend_seconds": 0} to stop. Base the decision on command, elapsed time, recent output, and review history. Use newOutputBytes to detect progress since the previous review; lack of output alone is not proof of a hang. Avoid repeated extensions without evidence of progress. Choose 1-${MAX_EXTENSION_SECONDS} seconds for a useful extension. At most ${MAX_TIMEOUT_EXTENSIONS} extensions are allowed.`,
+			messages: [{ role: "user", content: [{ type: "text", text: JSON.stringify(details) }], timestamp: Date.now() }],
+		}, { maxTokens: 80, timeoutMs: 15_000, maxRetries: 0, cacheRetention: "none" });
+		const text = response.content.filter((part): part is { type: "text"; text: string } => part.type === "text").map((part) => part.text).join("").trim();
+		const decision = JSON.parse(text) as { extend_seconds?: unknown };
+		return typeof decision.extend_seconds === "number" ? decision.extend_seconds : undefined;
+	};
 	const titleContext = new AsyncLocalStorage<{ title?: string }>();
 	const manager = new BackgroundBashManager(cwd, (job) => {
 		const command = sanitizeTaskLabel(job.command);
@@ -692,7 +772,7 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 			display: true,
 			details: { jobId: job.id, status: job.status, exitCode: job.exitCode, outputPath: job.outputPath },
 		}, { deliverAs: "followUp", triggerTurn: true });
-	}, autoBackgroundMs, (count) => pi.events.emit("background-bash:count", { running: count }));
+	}, autoBackgroundMs, (count) => pi.events.emit("background-bash:count", { running: count }), { reviewTimeout });
 	const tasks: BackgroundTaskController = {
 		list: () => manager.list().map((job): BackgroundTaskItem => ({
 			id: job.id,
@@ -737,6 +817,7 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 		parameters: backgroundBashSchema,
 		async execute(toolCallId: string, params: { command: string; timeout?: number; run_in_background?: boolean; title?: string }, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionContext) {
 			resolvedTitle(params.title, params.command);
+			latestContext = ctx;
 			if (!params.run_in_background) {
 				return titleContext.run({ title: params.title }, () => foreground.execute(toolCallId, { command: params.command, timeout: params.timeout }, signal, onUpdate, ctx));
 			}

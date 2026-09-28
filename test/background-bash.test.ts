@@ -438,6 +438,63 @@ describe("background bash", () => {
 		}
 	});
 
+	it("uses a tool-free, single-message model call for Bash deadline reviews", async () => {
+		const { ctx, shutdown, tools } = harness();
+		const calls: Array<{ request: any; options: any }> = [];
+		ctx.modelRegistry = {
+			getAvailable: () => [{ provider: "test", id: "fast-mini", name: "fast mini" }],
+			complete: async (_model: unknown, request: any, options: any) => {
+				calls.push({ request, options });
+				return { content: [{ type: "text", text: '{"extend_seconds":0}' }] };
+			},
+		};
+		try {
+			await tools.get("bash").execute("review", { command: "sleep 30", timeout: 0.05, run_in_background: true }, undefined, undefined, ctx);
+			await waitFor(() => calls.length, (count) => count === 1, "direct model review");
+			expect(calls[0].request.messages).toHaveLength(1);
+			expect(calls[0].request.tools).toBeUndefined();
+			expect(calls[0].options.timeoutMs).toBe(15_000);
+			expect(JSON.parse(calls[0].request.messages[0].content[0].text)).toMatchObject({ reviewsUsed: 1, extensions: [] });
+		} finally {
+			await shutdown();
+		}
+	});
+
+	it("reviews a deadline without spawning an agent and stops when the reviewer declines", async () => {
+		const reviews: Array<{ reviewsUsed: number; extensions: readonly number[]; output: string }> = [];
+		const manager = new BackgroundBashManager(process.cwd(), undefined, 60_000, undefined, {
+			reviewTimeout: async (details) => {
+				reviews.push(details);
+				return reviews.length === 1 ? 1 : 0;
+			},
+		});
+		try {
+			const job = await manager.start("echo working; sleep 30", 0.05, harness().ctx);
+			await waitFor(() => reviews.length, (count) => count === 1, "first review");
+			expect(job.status).toBe("running");
+			await waitFor(() => job.status, (status) => status === "timed_out", "reviewed task stop");
+			expect(reviews.map((review) => review.reviewsUsed)).toEqual([1, 2]);
+			expect(reviews[1].extensions).toEqual([1]);
+			expect(reviews[1].output).toContain("working");
+		} finally {
+			await manager.stopAll();
+		}
+	});
+
+	it("stops after a bounded number of reviews even if the reviewer keeps extending", async () => {
+		let reviews = 0;
+		const manager = new BackgroundBashManager(process.cwd(), undefined, 60_000, undefined, {
+			reviewTimeout: async () => { reviews++; return 1; },
+		});
+		try {
+			const job = await manager.start("sleep 30", 0.05, harness().ctx);
+			await waitFor(() => job.status, (status) => status === "timed_out", "bounded timeout");
+			expect(reviews).toBe(3);
+		} finally {
+			await manager.stopAll();
+		}
+	});
+
 	it("stops a running task but retains it until a separate clear", async () => {
 		const { commands, ctx, shutdown, tools } = harness();
 		let viewer: BackgroundTaskViewer | undefined;

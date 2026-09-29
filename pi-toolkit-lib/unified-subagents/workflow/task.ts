@@ -262,7 +262,7 @@ export function resolveResumeTarget(
   if (prior.status === "running") {
     return {
       ok: false,
-      message: `Workflow "${id}" is still running. Stop it from /agents → Workflows before resuming it.`,
+      message: `Workflow "${id}" is still running. Stop it from /agents-options → Workflows before resuming it.`,
     };
   }
   if (prior.journalPath === undefined) {

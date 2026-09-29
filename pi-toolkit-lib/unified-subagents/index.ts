@@ -8,7 +8,8 @@
  *   steer_subagent       — LLM-callable: send a steering message to a running agent
  *
  * Commands:
- *   /agents                 — Interactive agent management menu
+ *   /agents                 — Running and completed agents
+ *   /agents-options         — Interactive agent management menu
  */
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -1984,7 +1985,7 @@ Terse command-style prompts produce shallow, generic work.
       // ---- Schedule: register a job, don't spawn now ----
       if (params.schedule) {
         if (!isSchedulingEnabled()) {
-          return textResult("Scheduling is disabled in this project. Enable via /agents → Settings → Scheduling.");
+          return textResult("Scheduling is disabled in this project. Enable via /agents-options → Settings → Scheduling.");
         }
         if (params.resume) {
           return textResult("Cannot combine `schedule` with `resume` — schedules create fresh agents.");
@@ -2017,7 +2018,7 @@ Terse command-style prompts produce shallow, generic work.
           return textResult(
             `${fallbackNote}Scheduled "${job.name}" (id: ${job.id}, type: ${job.scheduleType}). ` +
             `Next run: ${next ?? "(unknown)"}. ` +
-            `Manage via /agents → Scheduled jobs.`,
+            `Manage via /agents-options → Scheduled jobs.`,
           );
         } catch (err) {
           return textResult(err instanceof Error ? err.message : String(err));
@@ -2802,7 +2803,7 @@ Terse command-style prompts produce shallow, generic work.
     // than saying why nothing ran.
     if (!isWorkflowsEnabled()) {
       report(
-        `--${WORKFLOW_FILE_FLAG} ignored: workflows are off. Turn them on in /agents → Settings → Workflows, ` +
+        `--${WORKFLOW_FILE_FLAG} ignored: workflows are off. Turn them on in /agents-options → Settings → Workflows, ` +
           'or set `"workflowsEnabled": true` in .pi/subagents.json.',
         "warning",
       );
@@ -3018,7 +3019,7 @@ Terse command-style prompts produce shallow, generic work.
     },
   }));
 
-  // ---- /agents interactive menu ----
+  // ---- /agents-options interactive menu ----
 
   // Directory resolution and the frontmatter edits live in agent-file-toggle.ts
   // so they are reachable from tests — this command handler is only registered
@@ -4138,7 +4139,12 @@ Write the file using the write tool. Only write the file, nothing else.`;
   }
 
   pi.registerCommand("agents", {
-    description: "Manage agents",
+    description: "View running and completed agents",
+    handler: async (_args, ctx) => { await showRunningAgents(ctx); },
+  });
+
+  pi.registerCommand("agents-options", {
+    description: "Manage agents and settings",
     handler: async (_args, ctx) => { await showAgentsMenu(ctx); },
   });
 

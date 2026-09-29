@@ -43,7 +43,8 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 | `/ptk` | Configure workflow feature toggles |
 | `/ptk-usage` | Rolling 1-day, 7-day, and 30-day usage tabs across Pi sessions |
 | `/tasks` | View, stop, and clear background tasks |
-| `/agents` | Manage agents, schedules, running jobs, and unified-subagent settings |
+| `/agents` | View running and completed agents |
+| `/agents-options` | Manage agent types, schedules, running jobs, and settings |
 
 The old `/ptk-settings` and `/ptk-workflow-settings` names are intentionally removed.
 

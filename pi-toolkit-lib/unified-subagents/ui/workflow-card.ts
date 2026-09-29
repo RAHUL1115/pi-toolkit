@@ -408,7 +408,7 @@ export function layoutWorkflowCard(input: WorkflowCardInput): WorkflowCardLine[]
   });
   if (warning) {
     lines.push(
-      clampLine([{ text: `  ${glyphs.warning} Large workflow · /agents → Workflows to stop`, color: "warning" }], width),
+      clampLine([{ text: `  ${glyphs.warning} Large workflow · /agents-options → Workflows to stop`, color: "warning" }], width),
     );
   }
 

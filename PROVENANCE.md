@@ -10,6 +10,7 @@ This package is a local composition of user-owned workflow features and modified
 | Removed `observability.ts` and `lib/{footer-engine,storage,settings}/**` | Historical derivative of `pi-observability` 1.3.2 | Former source matched npm 1.3.2 with local branding, footer controls, Git icon, and settings changes. Replaced rather than updated; historical notice retained. |
 | `pi-toolkit-lib/ask-user-question/**` | Copied/modified from `pi-askuserquestion` 1.0.0 | The component, schema, validation, and registration code were merged at upstream commit `e58609c9e9c8c4e8a0348c96eaad38dd7e6f0578`; registration now rejects every non-TUI mode explicitly. |
 | `pi-toolkit-lib/unified-subagents/**` | Copied/modified from local `pi-unified-subagents` snapshot `4b581fa99dc13f1a4295f2935cdf0205a0ab9443` | The complete source was moved under Pi Toolkit and its default factory became a private registrar invoked by the sole package entrypoint. Tests and documentation are retained under `test/unified-subagents/**` and `docs/unified-subagents/**`. |
+| `pi-toolkit-lib/goals.ts`, `goals-upstream.d.ts` | User-owned adapter around runtime dependency `@narumitw/pi-goal` 0.54.8 (MIT) | Calls the upstream generated registrar unchanged from the sole Toolkit entrypoint, skips child contexts, and preserves upstream settings/session formats. Goal source is not vendored into Toolkit. |
 | Compact grouped built-in rendering in `index.ts` | User-owned replacement for `pi-tool-display`; not a source copy | It serves a similar purpose, but a normalized token comparison found no shared 12-token code sequence with `pi-tool-display` 0.5.0. It uses Pi's exported built-in tool factories and a separate grouping design. |
 | `$skill` autocomplete/loading in `index.ts` | User-owned local workflow feature | No third-party source marker, package dependency, or matching source tree was found. |
 | Windows `Ctrl+Backspace` normalization in `index.ts` | User-owned feature consolidated from the former local `pi-ctrl-backspace` extension | The implementation translates VS Code/Windows Terminal `0x08` input to Pi's delete-word key and is independent of the observability code. |
@@ -52,6 +53,18 @@ The MIT notice is retained. Keep the notice and this attribution whenever distri
 - Retained documentation snapshot: [`docs/unified-subagents/README.md`](docs/unified-subagents/README.md)
 
 The source is retained as one internal module tree. Its tool names (`Agent`, `get_subagent_result`, and `steer_subagent`), `subagents:*` event/RPC names, `Symbol.for("pi-subagents:manager")` manager handle, `.pi/agents` and `.pi/subagents.json` conventions, child-session guard, output-transcript behavior, and persisted settings remain compatible. Pi Toolkit has since added local integration changes: a shared Tasks/Agents Activity view, permanent suppression of the legacy above-editor widget, task-detail return navigation, compact paired tool results, and unified conversation-viewer navigation. Git history records those post-snapshot changes. The v0.19 port adds Workflow orchestration, BOM-safe frontmatter, bounded Markdown previews, and foreground concurrency without replacing the local backend seam, Economy behavior, or shared Activity UI. Future upstream checks must compare from `UPSTREAM.json.importedThrough`, not from the historical standalone snapshot or the Toolkit package version.
+
+## Third-party runtime dependencies
+
+### @narumitw/pi-goal 0.54.8
+
+- Repository: <https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-goal>
+- npm: <https://www.npmjs.com/package/@narumitw/pi-goal/v/0.54.8>
+- License: MIT; retained in the installed dependency's `LICENSE`.
+- Runtime entry: `@narumitw/pi-goal/dist/index.ts`.
+- Dependency version is pinned in `package.json` and resolved in `package-lock.json`.
+
+Unlike the copied subagent/question trees, Goal is consumed as a dependency. The local adapter only controls registration scope; the ambient declaration supplies compiler types. Toolkit's footer reads the upstream `goal` status key. Standalone registrations must be removed to avoid duplicate runtime instances; `pi-goal.json` and `goal-state` session entries remain compatible. See the [current integration map](docs/integration.md).
 
 ## Historical influence not copied into this package
 

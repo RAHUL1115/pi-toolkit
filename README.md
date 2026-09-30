@@ -1,6 +1,12 @@
 # pi-toolkit
 
-A local Pi extension that combines workflow improvements, compact tool rendering, skill shortcuts, editor enhancements, and a fixed single-line footer and rolling usage dashboard.
+A local Pi extension that combines session Goals, unified subagents and workflows, background Bash, compact tool rendering, skill shortcuts, editor enhancements, and a single-line footer and rolling usage dashboard.
+
+Toolkit loads through **one extension entrypoint**, `index.ts`. Goals and unified subagents are internal registrations, not separately installed extensions. The current development and regression-test baseline is **Pi 0.99.1**.
+
+- [Commands](#commands) and [configuration](#workflow-settings)
+- [Integration architecture, settings ownership, and migration](docs/integration.md)
+- [Source provenance](PROVENANCE.md)
 
 ## Features
 
@@ -37,6 +43,8 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 
 `/ptk` reloads Pi automatically after workflow settings change. The footer has no settings or toggles.
 
+If migrating from standalone Goal or unified-subagent extensions, remove their old package/extension registrations before reloading. Keep their settings and session data. See the [migration checklist](docs/integration.md#migration-checklist); installing Toolkit does not automatically rewrite Pi's package list.
+
 ## Commands
 
 | Command | Purpose |
@@ -47,6 +55,22 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 | `/agents` | View running and completed agents |
 | `/agents-options` | Manage agent types, schedules, running jobs, and settings |
 | `/goal` | Manage a session goal; start with `/goal <objective>`, or use `status`, `pause`, `resume`, `edit`, and `clear` |
+| `/economy on\|off\|stats\|allow <path>` | Toggle the large-read guard, inspect savings, or permit one exact read |
+| `/skills-clear` | Clear the active dollar-skill set |
+
+`/agents` opens the activity list directly. Agent types, schedules, settings, and the workflow inspector are under `/agents-options`; they are not submenus of `/agents`.
+
+### Model-visible tools
+
+| Area | Tools |
+|---|---|
+| Delegation | `Agent`, `get_subagent_result`, `steer_subagent` |
+| Workflow orchestration | `SubagentWorkflow` — use only with explicit user opt-in |
+| Background Bash | Extended `bash`, `bash_output`, `bash_jobs`, `bash_stop` |
+| Goals | `goal_complete`, `goal_blocked`, `goal_wait` |
+| Clarification and context | `ask_user_question`, `context_tool` |
+
+Tool visibility is not permission to activate Goal mode, compact proactively, or start a multi-agent workflow. Each tool retains its own consent and safety contract.
 
 The old `/ptk-settings` and `/ptk-workflow-settings` names are intentionally removed.
 
@@ -182,11 +206,11 @@ An unqualified fresh `Agent` call starts in the foreground and automatically mov
 
 FleetView now provides the shared live activity surface: the legacy `Agents` widget above the editor is always suppressed, while the below-editor tabs combine running tasks with running/queued agents without showing completed items. Agent rows show tool uses, turn/token/context usage, elapsed time, and current activity; task rows show their title, ID, and elapsed time. Disabling FleetView hides the shared surface rather than restoring the legacy widget. Final `Agent` tool results and session records remain unchanged. The full-screen conversation viewer pairs calls with compact status rows, keeps failures visible, and uses Pi's `app.tools.expand` action (`Ctrl+O` by default) to toggle successful result details. It caches finalized transcript history, rebuilds only the streaming tail, and coalesces delta paints so long sessions stay responsive without changing compaction behavior. Line/page scrolling honors configured `tui.select.*` bindings. Up/Down (plus `K`/`J`) scroll one line, Alt+Up/Down scroll one page, and Ctrl+Up/Down jump to the top/bottom. Page Up/Page Down and Home/End remain aliases. `Ctrl+O` follows `app.tools.expand`, and Esc/Ctrl+C/`q` closes.
 
-The v0.19 upstream integration adds [`SubagentWorkflow`](docs/unified-subagents/docs/workflows.md): saved or generated JavaScript can coordinate agents, validate structured results, run test gates, and replay an unchanged journal prefix. Workflow rows live in the existing Agents Activity tab; `/agents → Workflows` opens their inspector. Agent-file harness/model policy still applies, and unsupported native-harness schema/resume requests fail explicitly. Workflows default to auto-enabled, standing down when a foreign `Workflow`, `workflow`, or `SubagentWorkflow` tool exists.
+The v0.19 upstream integration adds [`SubagentWorkflow`](docs/unified-subagents/docs/workflows.md): saved or generated JavaScript can coordinate agents, validate structured results, run test gates, and replay an unchanged journal prefix. Workflow rows live in the existing Agents Activity tab; `/agents-options → Workflows` opens their inspector. Agent-file harness/model policy still applies, and unsupported native-harness schema/resume requests fail explicitly. Workflows default to auto-enabled, standing down when a foreign `Workflow`, `workflow`, or `SubagentWorkflow` tool exists.
 
 The viewer renders assistant Markdown by default; `m` cycles `off / assistant / all`, persisted as `viewerMarkdown`. Expanded tool results are bounded at 16,000 characters, without changing stored transcripts. `maxConcurrentForeground` adds an optional independent blocking-agent limit (`0` means unlimited); auto-detachment still moves the same live child into background accounting. BOM-prefixed agent files are parsed correctly.
 
-Pi `>=0.84.0` is required. The exact upstream update baseline is tracked in [`docs/unified-subagents/UPSTREAM.json`](docs/unified-subagents/UPSTREAM.json); see the [port record](docs/unified-subagents/upstream-v0.19-port.md) before the next upstream comparison.
+The imported subagent baseline originally required Pi `>=0.84.0`; the complete Toolkit integration is currently developed and tested against Pi **0.99.1**. Older upstream requirements are not a verification claim for all current Toolkit features. The exact upstream update baseline is tracked in [`docs/unified-subagents/UPSTREAM.json`](docs/unified-subagents/UPSTREAM.json); see the [port record](docs/unified-subagents/upstream-v0.19-port.md) before the next upstream comparison.
 
 Project agent definitions remain in `.pi/agents/*.md`; project settings remain in `.pi/subagents.json`, with global settings under Pi's normal agent directory. Existing identifiers and persisted data formats are unchanged by the consolidation.
 
@@ -252,7 +276,11 @@ With `new: true`, no old context is transferred into the new chat. The new sessi
 
 ## Automatic session titles
 
-When **Automatic session titles** is enabled, the toolkit refreshes the current session name after every completed turn without blocking the main conversation. It uses the first available scoped model whose name contains Luna, Mini, Haiku, Flash, Lite, or Small; Luna is preferred. If no lightweight model is available, title generation is skipped silently.
+When **Automatic session titles** is enabled, the toolkit refreshes the current session name after every completed turn without blocking the main conversation. With a model scope, it selects a lightweight physical model within that scope. Without a scope, it prefers the `ptk/lite` virtual model and falls back to the physical selector when the alias is unavailable. Selection matches whole tokens in model IDs/names in this order: Luna, Mini, Haiku, Flash, Lite, Small; virtual models are excluded. If no matching physical model is available, title generation is skipped or its optional request fails silently.
+
+### Reusable light-model alias
+
+`ptk/lite` is registered independently of the automatic-title toggle on Pi versions with virtual-model support. It routes to an available lightweight physical model; it is not a new provider, credential, fixed model pin, or promise of a particular price. Continuations and retries retain their previous/failed route rather than switching physical models mid-request. Background Bash deadline reviews prefer this alias when available. The reserved read-only `bulk-reader` also uses `ptk/lite`, including when child extensions are disabled. Other subagent types retain their own light-model and harness settings; this is not yet one unified model-policy setting.
 
 Generated titles survive resume and may continue changing with the conversation. A title set manually with `/name` is never overwritten. Model, authentication, timeout, or network failures do not affect the main turn.
 
@@ -328,7 +356,7 @@ One line replaces Pi's footer in TUI mode (illustrative values):
   🤖 gpt-6-astra  📁 rahul  ⎇ main  ◔ 36.8% [↑12.4k ↓2.1k]  ⚡ 87.4t/s  $ 0.127
 ```
 
-Groups have two spaces between them and two spaces of outer padding, without distributing spare width. Folder is the runtime cwd basename; branch is omitted when unavailable. Context/input/output form one group. Context uses one decimal and warning color at 85%. Only the TPS suffix `t/s` is dim; its number uses normal text color. Narrow terminals clip the right end safely, preserving outer padding (reduced only below four columns). Native branch subscriptions are cleaned up on replacement/shutdown; there are no timers, shell polling, settings, or toggles.
+Groups have two spaces between them and two spaces of outer padding, without distributing spare width. Folder is the runtime cwd basename; branch is omitted when unavailable. Context/input/output form one group. Context uses one decimal and warning color at 85%. Only the TPS suffix `t/s` is dim; its number uses normal text color. Narrow terminals clip the right end safely, preserving outer padding (reduced only below four columns). When Goal supplies a status, `🎯 <status>` appears before the model group and disappears when that status clears. Narrow terminals can clip later groups. Other extensions' arbitrary status entries are not automatically displayed. Native branch subscriptions are cleaned up on replacement/shutdown; the footer itself has no timers, shell polling, settings, or toggles. Goal owns its separate lifecycle/deadline timers.
 
 Input (`↑`) is total session input: uncached input + cache reads + cache writes. Output (`↓`) includes reported reasoning, not added again. Both use the existing authoritative usage snapshot across all branches, compacted messages, summary usage and finalized nested tool usage; `/ptk-usage` accounting is unchanged. Cost is the same Pi/provider session estimate, rounded to three decimals, with `+?` retained for missing cost; it is not a subscription bill.
 
@@ -342,7 +370,7 @@ The read-only scan uses native Pi session JSONL under Pi's agent sessions direct
 
 Native fork/clone copies are deduplicated by stable entry ID, timestamp and payload hash, not the short ID alone. Unreported/pending nested work is unavailable. **An independently saved child ledger and its parent's aggregated tool usage lack shared provenance, so their overlap cannot be reliably reconciled.** No model/provider-name heuristic hides custom models or guesses whether a native ledger is a test; non-session telemetry is rejected.
 
-Pi 0.84.2 has no public cross-session usage API. `SessionManager.list/listAll` build search previews without cancellation/pagination; `open` loads synchronously and may migrate files. Instead, the local UI scans the documented format once, sequentially, with cancellation and limits: 30 seconds, 512 MiB total, 10,000 files, 64 MiB per file. Malformed records, inaccessible/oversized files, unsupported legacy v1 sessions and budget exhaustion show partial-coverage warnings. Files are never migrated or changed. Custom session directories not associated with the active runtime are not discoverable.
+The dashboard reads native session JSONL directly rather than opening sessions through `SessionManager.open`, which can load or migrate them. The local UI scans the documented format once, sequentially, with cancellation and limits: 30 seconds, 512 MiB total, 10,000 files, 64 MiB per file. Malformed records, inaccessible/oversized files, unsupported legacy v1 sessions and budget exhaustion show partial-coverage warnings. Files are never migrated or changed. Custom session directories not associated with the active runtime are not discoverable.
 
 Costs are recorded Pi/provider estimates, not subscription bills. Missing costs show `+?`; zero may also represent unknown catalog pricing. No new pricing table, model call, persistent tracker, or accounting cache is used. Session content stays local and is never injected into the conversation.
 
@@ -353,6 +381,13 @@ Costs are recorded Pi/provider estimates, not subscription bills. Missing costs 
 | Workflow settings | `pi-toolkit.json` beside `index.ts` |
 | Generated-title provenance | `pi-toolkit:auto-title` custom entries in the Pi session file |
 | Active dollar skills | `pi-toolkit:skill-loader` custom entries on the active session branch |
+| Goal settings | `<getAgentDir()>/pi-goal.json`, normally `~/.pi/agent/pi-goal.json` |
+| Goal state | Upstream `goal-state` custom entries in the current Pi session |
+| Agent definitions | `.pi/agents/*.md` (project), `<getAgentDir()>/agents/*.md` (global) |
+| Subagent settings | `.pi/subagents.json` (project), `<getAgentDir()>/subagents.json` (global) |
+| Background tasks | In-memory task records and temporary output files; not restart-persistent |
+
+These stores remain separate. `/ptk` does not edit Goal or subagent settings. See [settings ownership](docs/integration.md#settings-and-state-ownership) for the integration boundaries.
 
 The footer and usage modules have no persistent state. Obsolete `pi-toolkit.footer` settings, `~/.pi/agent/observability/` files, and existing `obs-turn` entries are left untouched and ignored; there is no migration or deletion of user data. The old `/ptk-obs` and `/ptk-footer-settings` commands are removed.
 
@@ -368,17 +403,31 @@ The footer and usage modules have no persistent state. Obsolete `pi-toolkit.foot
 
 ## Development
 
-Run the regression test:
+Use the checkout's installed tools and lockfile:
 
 ```bash
+npm ci
+npm run lint
+npm run typecheck
+npm run build
 npm test
 ```
 
-The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, bounded background-task execution and retention, confirmed stop/clear behavior, scroll/follow refresh, titles, automatic and `Ctrl+B` detachment, completion notifications, cleanup, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component.
+`npm test` runs the real grouped-renderer check followed by the full Vitest suite. For a focused iteration, run from the repository directory:
+
+```bash
+npm exec -- vitest run test/goals.test.ts test/usage-footer.test.ts
+```
+
+Additional scripts: `npm run test:e2e` targets `test/unified-subagents/e2e` (not every print-mode test); `npm run test:coverage` collects coverage; `npm run bench` and `npm run bench:ab` run performance measurements. Live-provider checks require their own explicit opt-in.
+
+Pi SDK dependencies are externalized so tests and recursively loaded child sessions share native provider registries without repeatedly transforming the SDK. Keep file serialization: nested sessions and Windows worktree cleanup can become unstable under indiscriminate parallelism. A measured full offline run passed **129 files / 2,425 tests**, with **21 skipped**, in about **450 seconds**, versus about **904 seconds** with blanket SDK inlining. These are machine-specific observations, not time guarantees; use at least a ten-minute watchdog for the full suite. Smaller selections are preferable during iteration.
+
+The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, bounded background-task execution and retention, confirmed stop/clear behavior, scroll/follow refresh, titles, automatic and `Ctrl+B` detachment, completion notifications, cleanup, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component. Goal tests additionally cover ordinary turns remaining inactive, stale/inactive completion rejection, completion persistence/clearing, child-session exclusion, and footer status updates.
 
 ## Provenance
 
-The workflow, grouped-tool, skill, editor, integration, and replacement footer/usage modules are locally owned. The removed observability implementation was derived from `pi-observability` 1.3.2; its historical attribution and MIT notice are retained. The ask-user-question subtree is derived from `pi-askuserquestion` 1.0.0 under the MIT License.
+The workflow, grouped-tool, skill, editor, integration, and replacement footer/usage modules are locally owned. The removed observability implementation was derived from `pi-observability` 1.3.2; its historical attribution and MIT notice are retained. The ask-user-question subtree is derived from `pi-askuserquestion` 1.0.0 under the MIT License. Unified subagents is a selectively ported internal source tree. Goals uses the pinned MIT-licensed `@narumitw/pi-goal` 0.54.8 runtime dependency rather than a vendored copy.
 
 See:
 

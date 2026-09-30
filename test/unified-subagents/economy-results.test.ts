@@ -22,9 +22,10 @@ function setup() {
   registerUnifiedSubagents(pi);
   const [provider, ...parts] = getLightModel().split("/");
   const model = { provider, id: parts.join("/"), name: "Light" };
+  const lite = { provider: "ptk", id: "lite", name: "Lite", api: "pi-virtual" };
   const ctx = {
     hasUI: false, ui: { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() }, cwd: process.cwd(),
-    model, modelRegistry: { find: vi.fn(() => model), getAvailable: vi.fn(() => [model]), getAll: vi.fn(() => [model]) },
+    model, modelRegistry: { find: vi.fn((provider, id) => [model, lite].find(candidate => candidate.provider === provider && candidate.id === id)), getAvailable: vi.fn(() => [model, lite]), getAll: vi.fn(() => [model, lite]) },
     sessionManager: { getSessionId: () => "economy-test", getBranch: () => [] }, getSystemPrompt: () => "parent secret",
   } as any;
   cleanups.push(async () => { for (const h of events.get("session_shutdown") ?? []) await h({}, ctx); });

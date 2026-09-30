@@ -67,6 +67,7 @@ describe("economy", () => {
     const registry = buildAgentRegistry(new Map([["bulk-reader", { ...bulkReaderConfig, builtinToolNames: ["write"] }]]));
     expect(registry.get("bulk-reader")).toBe(bulkReaderConfig);
     expect(bulkReaderConfig.builtinToolNames).toEqual(["read", "grep", "find", "ls"]);
+    expect(bulkReaderConfig.model).toBe("ptk/lite");
     const plan = resolveAgentInvocationConfig(bulkReaderConfig, { harness: "claude", thinking: "high", inherit_context: true, isolated: false, isolation: "worktree" });
     expect(plan).toMatchObject({ harness: "pi", thinking: "low", inheritContext: false, isolated: true, isolation: undefined });
     expect(bulkReaderConfig.allowedSubagents).toBeUndefined();

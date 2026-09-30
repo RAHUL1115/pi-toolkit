@@ -1,5 +1,7 @@
 # Retained third-party extension update check
 
+> **Historical report, not the current integration baseline.** The findings below describe the assessment target/date recorded here. Toolkit has since integrated Workflow, Markdown previews, BOM handling, and foreground concurrency through a selective v0.19 port. For current ownership and migration, read [the integration map](../integration.md); for upstream comparisons, use [UPSTREAM.json](../unified-subagents/UPSTREAM.json) and [the port record](../unified-subagents/upstream-v0.19-port.md). The port record also corrects the malformed full `e955e29…` SHA recorded in this report. No fresh upstream check is implied by this documentation update.
+
 **Checked:** 2026-09-12T06:33:03Z  
 **Assessment target:** Pi Toolkit [`e9954e1292821cc6487e2a28df4617777138063e`](https://github.com/RAHUL1115/pi-toolkit/tree/e9954e1292821cc6487e2a28df4617777138063e)  
 **Scope:** retained Ask User Question and unified-subagents code only. Observability is excluded.

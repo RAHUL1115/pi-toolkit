@@ -9,6 +9,7 @@ import { backgroundStatus } from "../pi-toolkit-lib/footer.ts";
 function harness(autoBackgroundMs = 60_000) {
 	const tools = new Map<string, any>();
 	const commands = new Map<string, any>();
+	const renderers = new Map<string, any>();
 	const shortcuts = new Map<string, (ctx: any) => void>();
 	const notifications: Array<{ message: any; options: any }> = [];
 	const backgroundCounts: number[] = [];
@@ -16,6 +17,7 @@ function harness(autoBackgroundMs = 60_000) {
 	const pi = {
 		registerTool: (tool: any) => tools.set(tool.name, tool),
 		registerCommand: (name: string, command: any) => commands.set(name, command),
+		registerMessageRenderer: (name: string, renderer: any) => renderers.set(name, renderer),
 		registerShortcut: (key: string, shortcut: any) => shortcuts.set(key, shortcut.handler),
 		sendMessage: (message: any, options: any) => notifications.push({ message, options }),
 		events: {
@@ -44,6 +46,7 @@ function harness(autoBackgroundMs = 60_000) {
 		commands,
 		ctx,
 		notifications,
+		renderers,
 		shortcuts,
 		tools,
 		shutdown: async () => Promise.all(shutdownHandlers.map((handler) => handler())),
@@ -713,8 +716,17 @@ describe("background bash", () => {
 		}
 	});
 
+	it("exposes task tools to the root grouped renderer", async () => {
+		const { shutdown, tools } = harness();
+		try {
+			expect(tools.get("bash").taskTools.map((tool: any) => tool.name)).toEqual(["bash_output", "bash_stop"]);
+		} finally {
+			await shutdown();
+		}
+	});
+
 	it("notifies the main agent and clears the running count when a background process finishes", async () => {
-		const { backgroundCounts, ctx, notifications, shutdown, tools } = harness();
+		const { backgroundCounts, ctx, notifications, renderers, shutdown, tools } = harness();
 		try {
 			await tools.get("bash").execute(
 				"call-notify",
@@ -723,9 +735,17 @@ describe("background bash", () => {
 				undefined,
 				ctx,
 			);
-			await waitFor(() => notifications[0]?.message.content ?? "", (value) => /Background task .* finished/.test(value), "completion notification");
+			await waitFor(() => notifications[0]?.message.content ?? "", (value) => /Background task .* · /.test(value), "completion notification");
 			expect(notifications[0].message.content).not.toContain("\ndone\n");
-			expect(notifications[0].message.content).toContain("Output remains in temporary file:");
+			expect(notifications[0].message.content.split("\n")).toHaveLength(2);
+			expect(notifications[0].message.content).toContain("Use bash_output(");
+			expect(notifications[0].message.details.outputPath).toBeTruthy();
+			const renderer = renderers.get("background-bash-notification");
+			const rendered = renderer(notifications[0].message, { expanded: false, outputPad: 1 }, { fg: (_color: string, text: string) => text });
+			expect(rendered.render(120)).toHaveLength(1);
+			expect(rendered.render(120)[0]).toMatch(/^ bg bash-\d+ · done · /);
+			expect(rendered.render(20)).toHaveLength(1);
+			expect(rendered.render(120).join("\n")).not.toContain("[background-bash-notification]");
 			expect(notifications[0].options).toEqual({ deliverAs: "followUp", triggerTurn: true });
 			expect(backgroundCounts.at(-1)).toBe(0);
 		} finally {

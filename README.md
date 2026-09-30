@@ -105,7 +105,7 @@ When **Compact tools** is enabled, the toolkit replaces the rendering of these P
 - `find`
 - `ls`
 
-Custom and unsupported tools keep their normal renderer and break the current group.
+Toolkit's `bash_output` and `bash_stop` also participate in the group, using their task ID as the target. `bash_jobs` and other custom/unsupported tools keep their normal renderer and break the current group. Task-tool execution and output bounds are unchanged.
 
 ### Group boundaries
 
@@ -114,7 +114,7 @@ Consecutive supported calls are rendered as one block. Tool-only assistant turns
 - a user message
 - non-empty assistant narration
 - non-empty thinking
-- an unsupported or custom tool
+- an unsupported tool (including custom tools other than `bash_output` and `bash_stop`)
 
 Empty text or thinking does not break a group. Existing groups are reconstructed when a session is loaded, compacted, or navigated.
 
@@ -194,7 +194,7 @@ The optional `timeout` is the first review deadline, not an automatic kill: a di
 
 Per-job logs are capped at 2 MiB by default. Once full, the file records a limit marker, the process continues, dropped bytes are counted, and `bash_output` keeps returning the recent bounded tail. At most 50 finished tasks are retained by default; eviction, clearing, and shutdown remove their temporary directories. Foreground jobs that never detach remove their temporary directory after settlement. `/tasks` refreshes from manager list/output events, throttles output paints to roughly 100 ms, and runs its one-second elapsed clock only while work is active. Task labels and preview output strip terminal control and bidirectional-control characters.
 
-When a background task exits, fails, is stopped, or times out, the toolkit sends only its final status and temporary log path to the main agent as a follow-up notification and triggers the next turn. Output enters context only when the agent explicitly calls `bash_output`, which remains bounded to 2,000 lines or 50KB. Active tasks are stopped and all task temp directories are removed during reload, session replacement, and orderly Pi shutdown. Task state is intentionally in-memory and does not survive a restart.
+When a background task exits, fails, is stopped, or times out, the toolkit sends a short two-line follow-up with its task ID, title, final status/exit code, and a reminder to call `bash_output` only when needed; it triggers the next turn. The temporary log path stays in message metadata rather than the notification text. The TUI renders a single muted, width-truncated line such as `bg bash-1 · done · Build`; nonzero exits retain their status/exit code. Output enters context only when the agent explicitly calls `bash_output`, which remains bounded to 2,000 lines or 50KB. Active tasks are stopped and all task temp directories are removed during reload, session replacement, and orderly Pi shutdown. Task state is intentionally in-memory and does not survive a restart.
 
 The shared activity surface appears only while background tasks are running or top-level agents are running/queued. While inactive it stays collapsed to the available filled, muted count tabs (`Tasks N` and/or `Agents N`). Down always focuses the tabs—even when only one category exists—and a second Down expands and enters the selected list. Left/Right switches categories from either the tabs or rows. Up from the first row collapses back to the tabs; Up again or Esc returns to the editor. Enter opens the selected agent conversation or `/tasks` focused on the selected task; closing that detail view returns to its Activity list while it still has active rows, otherwise to the remaining Activity tab or editor. Its terminal-input handler runs before editor shortcuts, so `Ctrl+B` detaches a blocking foreground agent when one exists and consumes the key; otherwise it passes through to the background-task shortcut.
 
@@ -394,7 +394,7 @@ The footer and usage modules have no persistent state. Obsolete `pi-toolkit.foot
 ## Compatibility and limitations
 
 - Most workflow, editor, settings, and dashboard features require TUI mode.
-- Only the seven listed built-in tools participate in grouped rendering.
+- Grouped rendering supports the seven listed built-ins plus `bash_output` and `bash_stop`; `bash_jobs` remains separate.
 - `Alt+O` is not currently configurable through Pi keybindings.
 - Repeat-paste expansion relies on Pi editor internals and may require adjustment after upstream editor changes.
 - Transcript markers are skipped on Pi versions without Markdown-transformer support.

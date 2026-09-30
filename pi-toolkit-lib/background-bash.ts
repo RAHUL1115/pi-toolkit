@@ -16,6 +16,7 @@ import {
 	type ExtensionToolContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { TruncatedText } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { getLightModel } from "./unified-subagents/settings.js";
 import { LITE_MODEL_ID, LITE_MODEL_PROVIDER, selectLiteModel } from "./session-title.js";
@@ -742,6 +743,7 @@ export class BackgroundBashManager {
 
 export type BackgroundBashToolDefinition = ToolDefinition<any, any, any> & {
 	readonly taskController: BackgroundTaskController;
+	readonly taskTools: ToolDefinition<any, any, any>[];
 };
 
 export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), autoBackgroundMs = 60_000): BackgroundBashToolDefinition {
@@ -764,15 +766,23 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 		return typeof decision.extend_seconds === "number" ? decision.extend_seconds : undefined;
 	};
 	const titleContext = new AsyncLocalStorage<{ title?: string }>();
+	pi.registerMessageRenderer<{ jobId: string; title: string; status: JobStatus; exitCode?: number | null }>(
+		"background-bash-notification",
+		(message, { outputPad }, theme) => {
+			const job = message.details;
+			if (!job) return undefined;
+			const state = job.status === "exited" && job.exitCode === 0 ? "done" :
+				`${job.status}${job.exitCode === undefined ? "" : ` (${job.exitCode ?? "signal"})`}`;
+			return new TruncatedText(theme.fg("muted", `bg ${job.jobId} · ${state} · ${job.title}`), outputPad, 0);
+		},
+	);
 	const manager = new BackgroundBashManager(cwd, (job) => {
-		const command = sanitizeTaskLabel(job.command);
-		const boundedCommand = command.length > 500 ? `${command.slice(0, 500)}…` : command;
 		const exit = job.exitCode === undefined ? "" : `, exit ${job.exitCode ?? "signal"}`;
 		pi.sendMessage({
 			customType: "background-bash-notification",
-			content: `Background task ${job.id} finished: ${job.status}${exit}.\nTitle: ${job.title}\nCommand: ${boundedCommand}\nOutput remains in temporary file: ${job.outputPath}\nUse bash_output only if the output is needed.`,
+			content: `Background task ${job.id} · ${job.title}\n${job.status}${exit}. Use bash_output(${job.id}) only if output is needed.`,
 			display: true,
-			details: { jobId: job.id, status: job.status, exitCode: job.exitCode, outputPath: job.outputPath },
+			details: { jobId: job.id, status: job.status, exitCode: job.exitCode, outputPath: job.outputPath, title: job.title },
 		}, { deliverAs: "followUp", triggerTurn: true });
 	}, autoBackgroundMs, (count) => pi.events.emit("background-bash:count", { running: count }), { reviewTimeout });
 	const tasks: BackgroundTaskController = {
@@ -850,7 +860,13 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 		},
 	});
 
-	pi.registerTool({
+	const taskTools: ToolDefinition<any, any, any>[] = [];
+	const registerTaskTool = (tool: ToolDefinition<any, any, any>) => {
+		pi.registerTool(tool);
+		taskTools.push(tool);
+	};
+
+	registerTaskTool({
 		name: "bash_output",
 		label: "task output",
 		description: "Read current output and status for a background task. Output is truncated to the last 2000 lines or 50KB.",
@@ -865,7 +881,7 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 		},
 	});
 
-	pi.registerTool({
+	registerTaskTool({
 		name: "bash_stop",
 		label: "stop task",
 		description: "Stop a background task and its child process tree.",
@@ -897,5 +913,6 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 
 	pi.on("session_shutdown", async () => manager.stopAll());
 	Object.defineProperty(bash, "taskController", { value: tasks });
+	Object.defineProperty(bash, "taskTools", { value: taskTools });
 	return bash as unknown as BackgroundBashToolDefinition;
 }

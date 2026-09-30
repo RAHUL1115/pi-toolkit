@@ -106,6 +106,9 @@ function subject(tool: string, args: Args, compact = true): string {
 	switch (tool) {
 		case "bash":
 			return display(args.command, "command", compact);
+		case "bash_output":
+		case "bash_stop":
+			return display(args.job_id, "task", compact);
 		case "grep":
 			return `/${display(args.pattern, "", compact)}/ in ${display(args.path, ".", compact)}`;
 		case "find":
@@ -368,11 +371,11 @@ function registerWorkflowEditor(pi: ExtensionAPI, settings: Settings, controls?:
 function registerCompactTools(
 	pi: ExtensionAPI,
 	settings: Settings,
-	backgroundBash: ToolDefinition<any, any, any>,
+	backgroundBash: ReturnType<typeof registerBackgroundBash>,
 ): ToolControls {
 	const cwd = process.cwd();
 	const outputPad = loadOutputPad();
-	const supported = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+	const supported = new Set(["read", "bash", "bash_output", "bash_stop", "edit", "write", "grep", "find", "ls"]);
 	const calls = new Map<string, GroupCall>();
 	const groups = new Map<string, ToolGroup>();
 	const shells = new Map<string, Container>();
@@ -614,6 +617,7 @@ function registerCompactTools(
 	const toolDefinitions = [
 		createReadToolDefinition(cwd),
 		backgroundBash,
+		...backgroundBash.taskTools,
 		createEditToolDefinition(cwd),
 		createWriteToolDefinition(cwd),
 		createGrepToolDefinition(cwd),

@@ -515,8 +515,10 @@ await oneLineStarts[1]({}, {
 await oneLineUpdate({ message: { role: "assistant", content: [
 	toolCall("one-line-read", "read", { path: "one-line.txt" }),
 	toolCall("one-line-bash", "bash", { command: "echo one-line" }),
+	toolCall("one-line-output", "bash_output", { job_id: "bash-5" }),
+	toolCall("one-line-stop", "bash_stop", { job_id: "bash-5" }),
 ] } });
-const oneLineStates = { "one-line-read": {}, "one-line-bash": {} };
+const oneLineStates = { "one-line-read": {}, "one-line-bash": {}, "one-line-output": {}, "one-line-stop": {} };
 const oneLineContext = (id, args) => ({
 	...context(id, args),
 	state: oneLineStates[id],
@@ -526,8 +528,15 @@ const oneLineRead = oneLineExtension.tools.get("read").definition;
 const oneLineBash = oneLineExtension.tools.get("bash").definition;
 const oneLineLeader = oneLineRead.renderCall({ path: "one-line.txt" }, theme, oneLineContext("one-line-read", { path: "one-line.txt" }));
 oneLineBash.renderCall({ command: "echo one-line" }, theme, oneLineContext("one-line-bash", { command: "echo one-line" }));
+for (const [name, id] of [["bash_output", "one-line-output"], ["bash_stop", "one-line-stop"]]) {
+	const tool = oneLineExtension.tools.get(name).definition;
+	assert.equal(tool.renderShell, "self");
+	tool.renderCall({ job_id: "bash-5" }, theme, oneLineContext(id, { job_id: "bash-5" }));
+	tool.renderResult({ content: [{ type: "text", text: "tool output" }], details: { status: "stopped" } },
+		{ expanded: false, isPartial: false }, theme, oneLineContext(id, { job_id: "bash-5" }));
+}
 const oneLineRendered = oneLineLeader.render(120).join("\n");
-assert.match(oneLineRendered, /• tools 1 read · 1 bash/);
+assert.match(oneLineRendered, /• tools 1 read · 1 bash · 1 bash_output · 1 bash_stop/);
 assert.doesNotMatch(oneLineRendered, /one-line\.txt|echo one-line/);
 
 cleanup();

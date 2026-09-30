@@ -94,8 +94,8 @@ describe("the inspector opens a workflow agent's conversation", () => {
   async function bootWithChild() {
     const booted = makePi();
     subagentsExtension(booted.pi);
-    const command = booted.commands.get("agents");
-    if (!command) throw new Error("the extension did not register /agents");
+    const command = booted.commands.get("agents-options");
+    if (!command) throw new Error("the extension did not register /agents-options");
     await booted.tools.get("SubagentWorkflow").execute(
       "tc-0",
       {
@@ -118,6 +118,7 @@ describe("the inspector opens a workflow agent's conversation", () => {
     void command.handler("", ui.context);
     await vi.waitFor(() => expect(ui.overlays).toHaveLength(1));
     const dialog = ui.overlays[0].instance;
+    expect(dialog.constructor.name).toBe("WorkflowDialog");
 
     // The footer is live, so waiting on it is waiting for the id to travel
     // host → runtime → progress entry → row. Until it lands there is nothing

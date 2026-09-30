@@ -442,6 +442,7 @@ describe("background bash", () => {
 		const { ctx, shutdown, tools } = harness();
 		const calls: Array<{ request: any; options: any }> = [];
 		ctx.modelRegistry = {
+			find: () => undefined,
 			getAvailable: () => [{ provider: "test", id: "fast-mini", name: "fast mini" }],
 			complete: async (_model: unknown, request: any, options: any) => {
 				calls.push({ request, options });

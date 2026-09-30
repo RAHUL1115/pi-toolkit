@@ -357,9 +357,8 @@ export class ConversationViewer implements Component {
       const composeGap = Math.max(1, innerW - visibleWidth(composeLeft) - visibleWidth(composeHint));
       lines.push(row(composeLeft + " ".repeat(composeGap) + composeHint));
     } else {
-      // Actions on the left, navigation on the right. The scroll hint keeps its
-      // full key list so the less-obvious bindings stay discoverable; it leads
-      // the right group so "Esc close" is the only part that truncates first.
+      // Actions on the left, navigation on the right. Shorten optional
+      // navigation detail before hiding the close action on narrow terminals.
       const sep = th.fg("dim", " · ");
       const actions: string[] = [th.fg("dim", `Ctrl+O ${this.toolsExpanded ? "collapse" : "tools"}`)];
       if (this.canSteer()) actions.push(th.fg("dim", "Enter steer"));
@@ -367,7 +366,13 @@ export class ConversationViewer implements Component {
         actions.push(this.stopArmed ? th.fg("error", "x again to STOP") : th.fg("dim", "x stop"));
       }
       actions.push(th.fg("dim", `m ${MARKDOWN_MODE_LABELS[this.markdownMode()]}`));
-      const footerRight = th.fg("dim", "↑↓ lines · Alt+↑↓ pages · Ctrl+↑↓ top/end · Esc close");
+      const actionText = actions.join(sep);
+      const navigation = [
+        "↑↓ lines · Alt+↑↓ pages · Ctrl+↑↓ top/end · Esc close",
+        "↑↓/Alt↑↓/Ctrl↑↓ · Esc close",
+        "Esc close",
+      ].find(hint => visibleWidth(actionText) + visibleWidth(hint) + 1 <= innerW) ?? "Esc close";
+      const footerRight = th.fg("dim", navigation);
 
       // Prepend the line-count/scroll-% readout only when there's spare width —
       // it's the first thing dropped so it never crowds out the hints.
@@ -378,7 +383,7 @@ export class ConversationViewer implements Component {
       const withCount = [count, ...actions].join(sep);
       const footerLeft = visibleWidth(withCount) + visibleWidth(footerRight) + 1 <= innerW
         ? withCount
-        : actions.join(sep);
+        : actionText;
 
       const footerGap = Math.max(1, innerW - visibleWidth(footerLeft) - visibleWidth(footerRight));
       lines.push(row(footerLeft + " ".repeat(footerGap) + footerRight));

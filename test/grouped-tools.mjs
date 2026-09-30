@@ -33,11 +33,12 @@ assert(extension.commands.has("ptk-usage"));
 assert(!extension.commands.has("ptk-obs"));
 assert(!extension.commands.has("ptk-footer-settings"));
 assert(extension.commands.has("agents"));
-for (const tool of ["Agent", "get_subagent_result", "steer_subagent", "bash_output", "bash_jobs", "bash_stop"]) {
+assert(extension.commands.has("goal"));
+for (const tool of ["Agent", "get_subagent_result", "steer_subagent", "bash_output", "bash_jobs", "bash_stop", "goal_complete", "goal_blocked", "goal_wait"]) {
 	assert(extension.tools.has(tool), `root loader registers ${tool}`);
 }
 assert(extension.commands.has("ptk"));
-assert.equal(extension.handlers.get("agent_end")?.length, 1, "automatic titles retain their handler; legacy TPS handler is removed");
+assert.equal(extension.handlers.get("agent_end")?.length, 2, "automatic titles and Goals retain their handlers; legacy TPS handler is removed");
 assert(extension.tools.has("ask_user_question"));
 const askUserQuestion = extension.tools.get("ask_user_question").definition;
 const duplicateQuestion = "Choose a runtime?";
@@ -504,7 +505,7 @@ writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 const { extensions: oneLineExtensions, errors: oneLineErrors } = await loadExtensions([extensionPath], extensionRoot);
 assert.deepEqual(oneLineErrors, []);
 const oneLineExtension = oneLineExtensions[0];
-assert.equal(oneLineExtension.handlers.get("agent_end")?.length ?? 0, 0, "automatic titles register no handler when disabled");
+assert.equal(oneLineExtension.handlers.get("agent_end")?.length ?? 0, 1, "disabling automatic titles leaves only the Goal handler");
 const oneLineStarts = oneLineExtension.handlers.get("session_start");
 const oneLineUpdate = oneLineExtension.handlers.get("message_update").at(-1);
 await oneLineStarts[1]({}, {

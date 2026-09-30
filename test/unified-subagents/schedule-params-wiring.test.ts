@@ -111,8 +111,8 @@ describe("Agent tool → persisted scheduled job", () => {
 
   it("stores the caller's own subagent_type, not the fallback substitute", async () => {
     // The scheduler re-resolves the type at fire time, and the stored name is
-    // what a user sees and edits in /agents. Baking in today's substitute would
-    // permanently rewrite their job to an agent they never asked for.
+    // what a user sees and edits in /agents-options. Baking in today's substitute
+    // would permanently rewrite their job to an agent they never asked for.
     const { job, reply, restore } = await scheduleAndReadBack({ subagent_type: "does-not-exist" });
     try {
       expect(job.subagent_type).toBe("does-not-exist");
@@ -222,7 +222,7 @@ describe("Agent tool → schedule restrictions", () => {
     const { reply, jobCount, restore } = await scheduleCall({}, { schedulingEnabled: false });
     try {
       expect(reply).toBe(
-        "Scheduling is disabled in this project. Enable via /agents → Settings → Scheduling.",
+        "Scheduling is disabled in this project. Enable via /agents-options → Settings → Scheduling.",
       );
       expect(jobCount).toBe(0);
     } finally {

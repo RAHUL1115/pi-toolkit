@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type {
   AssistantMessage,
+  JsonObject,
+  JsonValue,
   Message,
   ModelThinkingLevel,
   ToolCall,
@@ -129,6 +131,18 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isJsonObject(value);
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  const object = record(value);
+  return object !== undefined && Object.values(object).every(isJsonValue);
 }
 
 function text(value: unknown): string | undefined {
@@ -476,7 +490,7 @@ export function createAgyBackend(dependencies: AgyBackendDependencies): Subagent
             type: "toolCall",
             id: `agy-${stepIndex}`,
             name,
-            arguments: record(input) ?? (input === undefined ? {} : { preview: outputPreview(input) }),
+            arguments: isJsonObject(input) ? input : (input === undefined ? {} : { preview: outputPreview(input) }),
           };
           assistant.content.push(call);
           assistant.stopReason = "toolUse";

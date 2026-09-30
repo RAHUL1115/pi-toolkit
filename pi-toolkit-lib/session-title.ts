@@ -21,12 +21,12 @@ export function selectLiteModel(models: readonly Model<any>[]): Model<any> | und
 }
 
 export function registerLiteVirtualModel(pi: ExtensionAPI): void {
-	(pi as any).registerVirtualModel?.({
+	pi.registerVirtualModel?.({
 		provider: LITE_MODEL_PROVIDER,
 		id: LITE_MODEL_ID,
 		name: "Lite",
 		thinkingLevels: ["off", "low", "medium"],
-		route(request: any, ctx: ExtensionContext) {
+		route(request, ctx) {
 			const sticky = request.failed ?? (request.reason !== "user" ? request.previous : undefined);
 			if (sticky) return { model: sticky.model, thinkingLevel: sticky.thinkingLevel ?? "medium" };
 			const model = selectLiteModel(ctx.modelRegistry.getAvailable());

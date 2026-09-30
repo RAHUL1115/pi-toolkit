@@ -32,6 +32,7 @@ import registerAskUserQuestion from "./pi-toolkit-lib/ask-user-question/register
 import { registerBackgroundBash } from "./pi-toolkit-lib/background-bash.js";
 import registerCompactContext from "./pi-toolkit-lib/compact-context.js";
 import registerFooter from "./pi-toolkit-lib/footer.js";
+import registerGoals from "./pi-toolkit-lib/goals.js";
 import registerUsage from "./pi-toolkit-lib/usage.js";
 import registerAutomaticSessionTitles, { registerLiteVirtualModel } from "./pi-toolkit-lib/session-title.js";
 import registerSkillLoader from "./pi-toolkit-lib/skill-loader.js";
@@ -851,6 +852,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	if (settings.dollarSkills) registerSkillLoader(pi);
 	if (settings.autoSessionTitles) registerAutomaticSessionTitles(pi);
 	registerUnifiedSubagents(pi, backgroundBash.taskController);
+	registerGoals(pi);
 
 	pi.registerCommand("ptk", {
 		description: "Toggle Pi Toolkit workflow features",

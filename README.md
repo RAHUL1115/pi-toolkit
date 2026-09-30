@@ -15,9 +15,10 @@ A local Pi extension that combines workflow improvements, compact tool rendering
 | Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
 | User questions | Adds a structured `ask_user_question` tool with single-select, multi-select, and free-text answers |
 | Context control | Adds an explicit-only `context_tool` tool for normal compaction or an opt-in blank chat |
+| Goals | Integrates upstream pi-goal for session-scoped objectives, settled-idle continuation, safety limits, completion, blocking, and external waiting |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
 | Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
-| Footer | Fixed model, folder, Git branch, context/input/output, estimated generation TPS, and session cost |
+| Footer | Fixed model, folder, Git branch, context/input/output, estimated generation TPS, and session cost; Goal status appears first when present |
 | Usage | Rolling 1-day, 7-day, and 30-day usage tabs |
 
 ## Install
@@ -45,8 +46,17 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 | `/tasks` | View, stop, and clear background tasks |
 | `/agents` | View running and completed agents |
 | `/agents-options` | Manage agent types, schedules, running jobs, and settings |
+| `/goal` | Manage a session goal; start with `/goal <objective>`, or use `status`, `pause`, `resume`, `edit`, and `clear` |
 
 The old `/ptk-settings` and `/ptk-workflow-settings` names are intentionally removed.
+
+## Goals
+
+Toolkit registers the pinned [@narumitw/pi-goal](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-goal) runtime (MIT) internally; it is a dependency, not a second Pi extension entrypoint. Remove its standalone `npm:@narumitw/pi-goal` package declaration from Pi settings when switching to Toolkit's integration, otherwise both copies register the same tools and lifecycle handlers. Keep `~/.pi/agent/pi-goal.json` and your session files: settings and `goal-state` persistence retain their upstream format.
+
+Use `/goal <objective>` to activate Goal mode. `/goal` opens its manager and settings; `/goal --tokens 100k <objective>` adds an optional cumulative assistant-token budget. Default safety limits remain 25 automatic responses and 3 no-progress responses. Goals can trigger repeated paid model turns; token budgets and response limits are not dollar-cost caps.
+
+`goal_complete`, `goal_blocked`, and `goal_wait` retain upstream evidence, active-goal, stale-id, and safety checks. Merely exposing these tools does not activate Goal mode. Child sessions created by Toolkit's subagent runner or mention clone do not register Goal commands, tools, or continuation handlers. Goal status is included in Toolkit's existing single-line footer.
 
 ## Keybindings
 

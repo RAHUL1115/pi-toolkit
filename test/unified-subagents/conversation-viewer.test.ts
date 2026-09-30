@@ -487,16 +487,21 @@ describe("ConversationViewer", () => {
       expect(onStop).not.toHaveBeenCalled();
     });
 
-    it("keeps local tool/navigation actions and Markdown mode visible at 80 columns", () => {
+    it.each([false, true])("keeps close and tool actions visible at 80 columns (expanded: %s)", (expanded) => {
       const viewer = new ConversationViewer(
         mockTui(200, 80), mockSession(assistant("hi")), mockRecord({ status: "running" }), undefined,
         ansiTheme(), vi.fn(), vi.fn(), undefined, vi.fn(),
       );
+      if (expanded) {
+        viewer.handleInput("\x0f");
+        viewer.handleInput("x");
+      }
       const lines = viewer.render(80);
       const footer = strip(lines[lines.length - 2]);
+      expect(visibleWidth(lines[lines.length - 2])).toBe(80);
       expect(footer).toContain("Ctrl+O");
       expect(footer).toContain("Enter steer");
-      expect(footer).toContain("x stop");
+      expect(footer).toContain(expanded ? "x again to STOP" : "x stop");
       expect(footer).toContain("m md");
       expect(footer).toContain("Esc close");
     });

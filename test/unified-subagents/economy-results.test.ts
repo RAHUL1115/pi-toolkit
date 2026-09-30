@@ -19,6 +19,7 @@ function setup() {
     on: (n: string, h: any) => events.set(n, [...(events.get(n) ?? []), h]),
     events: { emit: vi.fn(), on: vi.fn(() => vi.fn()) }, appendEntry: vi.fn(), sendMessage: vi.fn(),
   } as any;
+  registerUnifiedSubagents(pi);
   const [provider, ...parts] = getLightModel().split("/");
   const model = { provider, id: parts.join("/"), name: "Light" };
   const ctx = {
@@ -26,7 +27,6 @@ function setup() {
     model, modelRegistry: { find: vi.fn(() => model), getAvailable: vi.fn(() => [model]), getAll: vi.fn(() => [model]) },
     sessionManager: { getSessionId: () => "economy-test", getBranch: () => [] }, getSystemPrompt: () => "parent secret",
   } as any;
-  registerUnifiedSubagents(pi);
   cleanups.push(async () => { for (const h of events.get("session_shutdown") ?? []) await h({}, ctx); });
   const call = async (tool: string, params: any) => {
     const result = await tools.get(tool).execute("tc", params, undefined, undefined, ctx);

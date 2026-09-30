@@ -1,5 +1,5 @@
 /**
- * workflow-command.test.ts — the `/agents → Workflows` run inspector.
+ * workflow-command.test.ts — the `/agents-options → Workflows` run inspector.
  *
  * The dialog itself is covered by workflow-dialog.test.ts; what is untested
  * until here is the screen around it: what happens with no runs, one run, or
@@ -7,8 +7,8 @@
  * than only looking like it did.
  *
  * It is reached through the agents menu rather than its own command, so every
- * test here drives `/agents` and picks the entry — which also pins that the
- * entry exists and is spelled the way the menu router expects.
+ * test here drives `/agents-options` and picks the entry — which also pins
+ * that the entry exists and is spelled the way the menu router expects.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,12 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerUnifiedSubagents as subagentsExtension } from "../../pi-toolkit-lib/unified-subagents/index.js";
 import { ctx, type Hermetic, hermeticDir, makePi } from "./helpers/boot-extension.js";
 
-/** Boot the real extension and hand back its `/agents` command. */
+/** Boot the real extension and hand back its `/agents-options` command. */
 function bootCommand() {
   const booted = makePi();
   subagentsExtension(booted.pi);
-  const command = booted.commands.get("agents");
-  if (!command) throw new Error("the extension did not register /agents");
+  const command = booted.commands.get("agents-options");
+  if (!command) throw new Error("the extension did not register /agents-options");
   return { ...booted, command };
 }
 
@@ -83,16 +83,16 @@ function commandCtx() {
   };
 }
 
-describe("/agents → Workflows", () => {
+describe("/agents-options → Workflows", () => {
   let hermetic: Hermetic;
 
   // Workflows are opt-in, so every test that expects the feature to exist has
-  // to turn it on — the same thing a user does once in /agents → Settings.
+  // to turn it on — the same thing a user does once in /agents-options → Settings.
   beforeEach(() => { hermetic = hermeticDir({ settings: { workflowsEnabled: true } }); });
   afterEach(() => { hermetic.restore(); });
 
   it("registers no top-level /workflows command", () => {
-    // It lives under /agents instead, deliberately: pi renames a duplicate
+    // It lives under /agents-options instead, deliberately: pi renames a duplicate
     // command to `/workflows:1` and `/workflows:2`, which breaks the bare name
     // for both extensions. Pinned because re-adding it would be silent.
     const booted = bootCommand();
@@ -158,6 +158,7 @@ describe("/agents → Workflows", () => {
       // Straight to the dialog — asking which of one is noise.
       expect(ui.askedWhichRun()).toBe(false);
       expect(ui.built).toHaveLength(1);
+      expect(ui.built[0]?.constructor.name).toBe("WorkflowDialog");
     });
 
     it("asks which run when several exist, newest first", async () => {

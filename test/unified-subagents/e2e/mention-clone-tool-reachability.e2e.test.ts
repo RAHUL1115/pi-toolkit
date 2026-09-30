@@ -51,6 +51,8 @@ vi.mock("@earendil-works/pi-coding-agent", async () => {
   };
 });
 
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+
 import { runMentionClone } from "../../../pi-toolkit-lib/unified-subagents/mention-clone.js";
 import { fauxModelBackend } from "../helpers/faux-model-backend.js";
 import { registerFauxProvider } from "../helpers/pi-ai.js";
@@ -72,6 +74,12 @@ describe("mention clone tool reachability against real pi-mono", () => {
   it("the clone's Agent tool is live on the real session, and it is the only one", async () => {
     const model = faux.getModel();
     const backend = fauxModelBackend(model);
+    const stream = backend.modelRuntime.streamSimple;
+    backend.modelRuntime.streamSimple = vi.fn((...args: any[]) => stream(...args));
+    const mainManager = SessionManager.inMemory(cwd);
+    mainManager.appendCompaction("Earlier conversation", null, 50_000);
+    mainManager.appendMessage({ role: "user", content: "Actual retained context", timestamp: 1 });
+    const originalEntries = mainManager.getEntries();
     const ctx: any = {
       cwd,
       model,
@@ -79,19 +87,36 @@ describe("mention clone tool reachability against real pi-mono", () => {
       // mention-clone reads the runtime off the registry facade, the same shim
       // agent-runner carries for Pi >= 0.80.8.
       modelRegistry: { ...backend.modelRegistry, runtime: backend.modelRuntime },
-      sessionManager: { getEntries: () => [], getLeafId: () => undefined },
+      sessionManager: mainManager,
     };
 
     // Never called: the assertion is on what the session exposes, not on the
     // faux model deciding to use it.
-    const agentTool = { name: "Agent", execute: vi.fn() } as any;
+    const agentTool = {
+      name: "Agent",
+      label: "Agent",
+      description: "Start an agent",
+      parameters: { type: "object", properties: {} },
+      execute: vi.fn(),
+    } as any;
 
     // Never rejects by contract; a faux turn that cannot complete is fine,
     // because the tool set is fixed at construction.
-    await runMentionClone({ ctx, type: "Explore", message: "go", agentTool });
+    const result = await runMentionClone({ ctx, type: "Explore", message: "go", agentTool });
+    expect(result.error).toBe("the conversation clone did not start it");
 
     expect(sessions).toHaveLength(1);
     // The bug this file exists for: with an empty allowlist this is `[]`.
     expect(sessions[0].getActiveToolNames()).toEqual(["Agent"]);
+    expect(backend.modelRuntime.streamSimple).toHaveBeenCalled();
+    const request = backend.modelRuntime.streamSimple.mock.calls[0][1];
+    expect(request.messages[0]).toMatchObject({ role: "system", content: "PARENT" });
+    expect(sessions[0].sessionManager.buildSessionContext().messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "compactionSummary", summary: "Earlier conversation" }),
+        { role: "user", content: "Actual retained context", timestamp: 1 },
+      ]),
+    );
+    expect(mainManager.getEntries()).toEqual(originalEntries);
   });
 });

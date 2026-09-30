@@ -4,10 +4,11 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 import { singleLine, tokens, usageSnapshot, type UsageSnapshot, type UsageTheme } from "./usage-snapshot.js";
 
 /** Compact icon groups with two-column outer padding; never distribute space. */
-export function renderFooter(s: UsageSnapshot, width: number, theme: UsageTheme, meta: { folder?: string; branch?: string | null; tps?: number } = {}): string[] {
+export function renderFooter(s: UsageSnapshot, width: number, theme: UsageTheme, meta: { folder?: string; branch?: string | null; tps?: number; goalStatus?: string } = {}): string[] {
   const padding = Math.min(2, Math.floor(Math.max(0, width) / 2));
   const model = singleLine(s.model.slice(s.model.indexOf("/") + 1));
   const groups = [
+    ...(meta.goalStatus ? [theme.fg("accent", `🎯 ${singleLine(meta.goalStatus)}`)] : []),
     theme.fg("accent", `🤖 ${model}${s.thinking ? `:${singleLine(s.thinking)}` : ""}`),
     theme.fg("muted", `📁 ${singleLine(meta.folder ?? "")}`),
     ...(meta.branch ? [theme.fg("muted", `⎇ ${singleLine(meta.branch)}`)] : []),
@@ -68,7 +69,7 @@ export default function registerFooter(pi: ExtensionAPI) {
       requestRender = () => tui.requestRender();
       return {
         invalidate() {},
-        render: (width: number) => renderFooter(usageSnapshot(ctx), width, theme, { folder: basename(ctx.cwd || ctx.sessionManager.getCwd()), branch: data.getGitBranch(), tps }),
+        render: (width: number) => renderFooter(usageSnapshot(ctx), width, theme, { folder: basename(ctx.cwd || ctx.sessionManager.getCwd()), branch: data.getGitBranch(), tps, goalStatus: data.getExtensionStatuses?.().get("goal") }),
         dispose,
       };
     });

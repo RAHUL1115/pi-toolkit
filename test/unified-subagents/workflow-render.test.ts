@@ -64,7 +64,7 @@ describe("inline glyph mapping", () => {
     expect(rows[3]).toContain("⟳ progressing");
   });
 
-  it("does not use the /workflows dialog's queued glyph for a queued agent", () => {
+  it("does not use the workflow dialog's queued glyph for a queued agent", () => {
     const lines = card({
       progress: [agentEntry({ index: 0, label: "waiting", state: "start", queuedAt: START })],
     });
@@ -459,7 +459,7 @@ describe("size warning", () => {
       progress: [agentEntry({ index: 0, label: "a" })],
       agentCount: 40,
     });
-    expect(lines.at(-1)).toBe("  ⚠ Large workflow · /agents → Workflows to stop");
+    expect(lines.at(-1)).toBe("  ⚠ Large workflow · /agents-options → Workflows to stop");
   });
 
   it("stays away for a small run", () => {

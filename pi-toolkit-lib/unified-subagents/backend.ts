@@ -19,7 +19,7 @@ export interface SubagentSession {
     emit(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
   };
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
-  steer(message: string): Promise<void>;
+  steer(message: string): Promise<void> | ReturnType<AgentSession["steer"]>;
   getSessionStats(): {
     tokens: { input: number; output: number; cacheWrite: number };
     contextUsage?: { percent: number | null };

@@ -40,6 +40,8 @@ import { claudeBackend } from "../../pi-toolkit-lib/unified-subagents/backends/c
 import { codexBackend } from "../../pi-toolkit-lib/unified-subagents/backends/codex.js";
 import { resolveAgyModelHint, resolveClaudeModelHint, resolveCodexModelHint } from "../../pi-toolkit-lib/unified-subagents/harness-resolution.js";
 import { getLightModelChoices, registerUnifiedSubagents as subagentsExtension } from "../../pi-toolkit-lib/unified-subagents/index.js";
+import type { AgentRecord } from "../../pi-toolkit-lib/unified-subagents/types.js";
+import { AgentListViewer } from "../../pi-toolkit-lib/unified-subagents/ui/agent-list-viewer.js";
 
 function session(): SubagentSession {
   return {
@@ -481,38 +483,43 @@ describe("Agent tool harness routing", () => {
     );
     await flush();
 
-    let selectCount = 0;
+    let pickerCount = 0;
     let overlayOptions: unknown;
     type OverlayFactory = (
       tui: { terminal: { rows: number; columns: number }; requestRender(): void },
       theme: { fg(color: string, text: string): string; bold(text: string): string },
       keybindings: undefined,
-      done: (result: undefined) => void,
+      done: (result: AgentRecord | undefined) => void,
     ) => { dispose?(): void };
     const commandCtx = makeCtx(cwd, true, {
-      select: vi.fn(async (_title: string, options: string[]) => {
-        selectCount++;
-        if (selectCount === 1) return options.find(option => option.startsWith("Running agents ("));
-        if (selectCount === 2) return options[0];
-        return undefined;
-      }),
       custom: vi.fn(async (factory: OverlayFactory, options: unknown) => {
-        overlayOptions = options;
+        let selected: AgentRecord | undefined;
         const component = factory(
           { terminal: { rows: 40, columns: 120 }, requestRender: vi.fn() },
           { fg: (_color, text) => text, bold: text => text },
           undefined,
-          () => {},
+          result => { selected = result; },
         );
+        if (component instanceof AgentListViewer) {
+          pickerCount++;
+          component.handleInput(pickerCount === 1 ? "\r" : "\x1b");
+          if (pickerCount === 1) expect(selected?.description).toBe("Open conversation");
+          else expect(selected).toBeUndefined();
+          return selected;
+        }
+        expect(component.constructor.name).toBe("ConversationViewer");
+        overlayOptions = options;
         component.dispose?.();
         return undefined;
       }),
     });
+    commandCtx.mode = "tui";
 
     const command = commands.get("agents");
     if (!command) throw new Error("agents command was not registered");
     await command.handler("", commandCtx as unknown as ExtensionCommandContext);
 
+    expect(pickerCount).toBe(2);
     expect(overlayOptions).toEqual({
       overlay: true,
       overlayOptions: { anchor: "center", width: "100%", maxHeight: "100%" },
@@ -520,7 +527,7 @@ describe("Agent tool harness routing", () => {
     await lifecycle.get("session_shutdown")?.({}, makeCtx(cwd));
   });
 
-  it("wires one global light model through `/agents` Settings", async () => {
+  it("wires one global light model through `/agents-options` Settings", async () => {
     initTheme(undefined, false);
     const { pi, commands, lifecycle } = makePi();
     subagentsExtension(pi as unknown as ExtensionAPI);
@@ -551,6 +558,7 @@ describe("Agent tool harness routing", () => {
     }) as unknown as ExtensionCommandContext & {
       modelRegistry: { getAvailable(): Array<{ provider: string; id: string }> };
     };
+    commandCtx.mode = "tui";
     commandCtx.modelRegistry = {
       getAvailable: () => [
         { provider: "openai-codex", id: "gpt-5.6-luna" },
@@ -558,8 +566,8 @@ describe("Agent tool harness routing", () => {
       ],
     };
 
-    const command = commands.get("agents");
-    if (!command) throw new Error("agents command was not registered");
+    const command = commands.get("agents-options");
+    if (!command) throw new Error("agents-options command was not registered");
     await command.handler("", commandCtx);
 
     expect(rendered).toContain("Light model");

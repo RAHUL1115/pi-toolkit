@@ -85,6 +85,34 @@ describe("current session usage", () => {
     expect(dashboard).not.toContain("LAST 10");
   });
 
+  it("keeps Goal status visible in the single-line footer and clears it when removed", () => {
+    const snapshot = usageSnapshot(context());
+    for (const width of [0, 1, 8, 40, 80, 160]) {
+      const lines = renderFooter(snapshot, width, theme, { goalStatus: "active 3m · automatic 2/25" });
+      expect(lines).toHaveLength(1);
+      expect(visibleWidth(lines[0])).toBeLessThanOrEqual(width);
+    }
+    const handlers = new Map<string, (...args: any[]) => unknown>();
+    footer({ on: (name: string, fn: (...args: any[]) => unknown) => handlers.set(name, fn) } as unknown as ExtensionAPI);
+    const statuses = new Map([["goal", "active 3m · automatic 2/25"]]);
+    let component: any;
+    const ctx = { ...context(), cwd: "C:/project", mode: "tui", ui: { setFooter: (factory: any) => {
+      component = factory({ requestRender: vi.fn() }, theme, {
+        getGitBranch: () => null,
+        getExtensionStatuses: () => statuses,
+        onBranchChange: () => () => {},
+      });
+    } } };
+    handlers.get("session_start")?.({}, ctx);
+    expect(component.render(80)[0]).toContain("🎯 active 3m");
+    statuses.set("goal", "waiting review monitor");
+    expect(component.render(80)[0]).toContain("🎯 waiting review monitor");
+    statuses.clear();
+    expect(component.render(80)[0]).not.toContain("🎯");
+    expect(component.render(80)[0]).toBe(renderFooter(snapshot, 80, theme, { folder: "project", branch: null, tps: 0 })[0]);
+    handlers.get("session_shutdown")?.({}, ctx);
+  });
+
   it("renders the exact approved preview and dims only the TPS suffix", () => {
     const snapshot = { ...usageSnapshot(context()), model: "test/gpt-6-astra", input: 2400, cacheRead: 9000, cacheWrite: 1000, output: 2100, cost: 0.127, context: { tokens: 368, percent: 36.8, contextWindow: 1000 } };
     const fg = vi.fn(theme.fg);

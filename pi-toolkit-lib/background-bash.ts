@@ -13,6 +13,7 @@ import {
 	truncateTail,
 	type ExtensionAPI,
 	type ExtensionContext,
+	type ExtensionToolContext,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -816,7 +817,7 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 		...foreground,
 		description: `${foreground.description} Commands start in the foreground and automatically move to the background after ${autoBackgroundMs / 1000} seconds. Set run_in_background=true to start there immediately, or press Ctrl+B while a foreground command is running. An optional title (maximum 80 characters) names the task in /tasks. Use /tasks to manage tasks, or bash_output and bash_stop with the returned task ID.`,
 		parameters: backgroundBashSchema,
-		async execute(toolCallId: string, params: { command: string; timeout?: number; run_in_background?: boolean; title?: string }, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionContext) {
+		async execute(toolCallId: string, params: { command: string; timeout?: number; run_in_background?: boolean; title?: string }, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionToolContext) {
 			resolvedTitle(params.title, params.command);
 			latestContext = ctx;
 			if (!params.run_in_background) {

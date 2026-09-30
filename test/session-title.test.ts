@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import registerAutomaticSessionTitles, {
+	LITE_MODEL_ID,
+	LITE_MODEL_PROVIDER,
 	cleanSessionTitle,
+	registerLiteVirtualModel,
 	selectLiteModel,
 	titleTranscript,
 } from "../pi-toolkit-lib/session-title.ts";
@@ -21,6 +24,7 @@ function harness() {
 	const ctx = {
 		scopedModels: [],
 		modelRegistry: {
+			find: vi.fn(() => undefined),
 			getAvailable: vi.fn(() => [model("gpt-5.4-mini"), model("gpt-5.6-luna")]),
 			complete,
 		},
@@ -52,6 +56,19 @@ describe("automatic session titles", () => {
 		expect(selectLiteModel([model("gpt-5.4-mini"), model("gpt-5.6-luna")])?.id).toBe("gpt-5.6-luna");
 	});
 
+	it("registers a lite virtual model that routes to a physical lite model", async () => {
+		const registerVirtualModel = vi.fn();
+		registerLiteVirtualModel({ registerVirtualModel } as any);
+
+		const definition = registerVirtualModel.mock.calls[0]?.[0];
+		expect(definition.provider).toBe(LITE_MODEL_PROVIDER);
+		expect(definition.id).toBe(LITE_MODEL_ID);
+		expect(await Promise.resolve(definition.route(
+			{ reason: "user", thinkingLevel: "low" },
+			{ modelRegistry: { getAvailable: () => [model("gpt-5.4-mini"), model("gpt-5.6-luna")] } },
+		))).toMatchObject({ model: { id: "gpt-5.6-luna" }, thinkingLevel: "low" });
+	});
+
 	it("builds and cleans bounded title text", () => {
 		expect(titleTranscript([{ role: "toolResult", content: "ignore" }, { role: "user", content: "  fix   auth  " }])).toBe("user: fix auth");
 		expect(cleanSessionTitle('"Title: Fix authentication flow."\nextra')).toBe("Fix authentication flow");
@@ -76,6 +93,20 @@ describe("automatic session titles", () => {
 		expect(pi.appendEntry).toHaveBeenCalledTimes(2);
 	});
 
+	it("prefers the registered lite virtual model for titles", async () => {
+		const { ctx, complete, handlers } = harness();
+		ctx.modelRegistry.find.mockReturnValue(model("lite"));
+		complete.mockResolvedValue({ content: [{ type: "text", text: "Virtual title" }] });
+
+		await handlers.get("session_start")?.({}, ctx);
+		handlers.get("agent_end")?.(turn("use virtual lite"), ctx);
+		await flushTitle();
+
+		expect(ctx.modelRegistry.find).toHaveBeenCalledWith(LITE_MODEL_PROVIDER, LITE_MODEL_ID);
+		expect(complete.mock.calls[0]?.[0].id).toBe("lite");
+		expect(ctx.modelRegistry.getAvailable).not.toHaveBeenCalled();
+	});
+
 	it("respects scoped models", async () => {
 		const { ctx, complete, handlers } = harness();
 		ctx.scopedModels = [{ model: model("claude-haiku-4-5") }];
@@ -86,6 +117,7 @@ describe("automatic session titles", () => {
 		await flushTitle();
 
 		expect(complete.mock.calls[0]?.[0].id).toBe("claude-haiku-4-5");
+		expect(ctx.modelRegistry.find).not.toHaveBeenCalled();
 		expect(ctx.modelRegistry.getAvailable).not.toHaveBeenCalled();
 	});
 

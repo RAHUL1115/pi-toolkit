@@ -127,7 +127,7 @@ export async function scanUsageHistory(
           for await (const line of lines) {
             if (controller.signal.aborted) { report.partial = true; break; }
             if (!line.trim()) continue;
-            let entry;
+            let entry: any;
             try { entry = JSON.parse(line); } catch { report.invalid++; continue; }
             if (!header) {
               if (entry?.type !== "session" || typeof entry.id !== "string" || ![2, 3].includes(entry.version)) { report.skipped++; break; }

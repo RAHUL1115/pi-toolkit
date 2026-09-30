@@ -98,9 +98,7 @@ function make(
 
 /** Strip ANSI escape codes from a string */
 function stripAnsi(s: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally matching ESC sequences
   const noSgr = s.replace(/\u001b\[[0-9;]*m/g, "");
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally matching ESC sequences
   return noSgr.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
 }
 
@@ -322,9 +320,7 @@ describe("handleInput — single-select confirm", () => {
       resolved = r;
     });
     c.handleInput(INPUT.enter);
-    // biome-ignore lint/style/noNonNullAssertion: we assert not.toBeNull() above
     expect("Which database should we use?" in resolved!.answers).toBe(true);
-    // biome-ignore lint/style/noNonNullAssertion: we assert not.toBeNull() above
     expect("Database" in resolved!.answers).toBe(false);
   });
 
@@ -485,7 +481,6 @@ describe("handleInput — multi-select", () => {
     });
     c.handleInput(INPUT.space);
     c.handleInput(INPUT.enter);
-    // biome-ignore lint/style/noNonNullAssertion: we assert not.toBeNull() above
     expect("Which features should we implement?" in resolved!.answers).toBe(
       true,
     );

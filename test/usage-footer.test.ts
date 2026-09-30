@@ -99,13 +99,13 @@ describe("current session usage", () => {
   });
 
   it("uses final output tokens over observed generation time, freezes through tool waits, and resets lifecycle state", () => {
-    const handlers = new Map<string, Function>();
-    footer({ on: (name: string, fn: Function) => handlers.set(name, fn) } as unknown as ExtensionAPI);
+    const handlers = new Map<string, (...args: any[]) => unknown>();
+    footer({ on: (name: string, fn: (...args: any[]) => unknown) => handlers.set(name, fn) } as unknown as ExtensionAPI);
     let component: any;
     let now = 0;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     const render = vi.fn();
-    const ctx = { ...context(), cwd: "C:/project", mode: "tui", ui: { setFooter: (factory: Function) => { component = factory({ requestRender: render }, theme, { getGitBranch: () => null, onBranchChange: () => () => {} }); } } };
+    const ctx = { ...context(), cwd: "C:/project", mode: "tui", ui: { setFooter: (factory: Parameters<ExtensionContext["ui"]["setFooter"]>[0]) => { component = factory({ requestRender: render }, theme, { getGitBranch: () => null, onBranchChange: () => () => {} }); } } };
     const emit = (name: string, event: any = {}) => handlers.get(name)?.(event, ctx);
     const line = () => component.render(200)[0];
     const delta = (type = "text_delta", text = "one huge chunk is not a token count") => emit("message_update", { message: assistant(), assistantMessageEvent: { type, delta: text } });
@@ -152,12 +152,12 @@ describe("current session usage", () => {
   });
 
   it.each([undefined, -1, NaN, Infinity, 0, 20])("handles absent/invalid output usage %s and zero/no-sample intervals", (output) => {
-    const handlers = new Map<string, Function>();
-    footer({ on: (name: string, fn: Function) => handlers.set(name, fn) } as unknown as ExtensionAPI);
+    const handlers = new Map<string, (...args: any[]) => unknown>();
+    footer({ on: (name: string, fn: (...args: any[]) => unknown) => handlers.set(name, fn) } as unknown as ExtensionAPI);
     let component: any;
     let now = 0;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
-    const ctx = { ...context(), cwd: "C:/project", mode: "tui", ui: { setFooter: (factory: Function) => { component = factory({ requestRender() {} }, theme, { getGitBranch: () => null, onBranchChange: () => () => {} }); } } };
+    const ctx = { ...context(), cwd: "C:/project", mode: "tui", ui: { setFooter: (factory: Parameters<ExtensionContext["ui"]["setFooter"]>[0]) => { component = factory({ requestRender() {} }, theme, { getGitBranch: () => null, onBranchChange: () => () => {} }); } } };
     const emit = (name: string, event: any = {}) => handlers.get(name)?.(event, ctx);
     try {
       emit("session_start");
@@ -174,15 +174,15 @@ describe("current session usage", () => {
   });
 
   it("subscribes to native branch changes and cleans up on replacement and shutdown", () => {
-    const handlers = new Map<string, Function>();
-    footer({ on: (name: string, fn: Function) => handlers.set(name, fn) } as unknown as ExtensionAPI);
+    const handlers = new Map<string, (...args: any[]) => unknown>();
+    footer({ on: (name: string, fn: (...args: any[]) => unknown) => handlers.set(name, fn) } as unknown as ExtensionAPI);
     const unsubscribes = [vi.fn(), vi.fn()];
-    const listeners: Function[] = [];
+    const listeners: (() => void)[] = [];
     let branch: string | undefined = "main";
     let component: any;
     const render = vi.fn();
-    const data = { getGitBranch: () => branch, onBranchChange: (fn: Function) => { listeners.push(fn); return unsubscribes[listeners.length - 1]; } };
-    const ctx = { ...context(), cwd: "C:/runtime/project", mode: "tui", ui: { setFooter: (factory: Function) => { component = factory({ requestRender: render }, theme, data); } } };
+    const data = { getGitBranch: () => branch, onBranchChange: (fn: () => void) => { listeners.push(fn); return unsubscribes[listeners.length - 1]; } };
+    const ctx = { ...context(), cwd: "C:/runtime/project", mode: "tui", ui: { setFooter: (factory: Parameters<ExtensionContext["ui"]["setFooter"]>[0]) => { component = factory({ requestRender: render }, theme, data); } } };
 
     handlers.get("session_start")!({}, ctx);
     expect(component.render(160)[0]).toContain("⎇ main");
@@ -199,9 +199,9 @@ describe("current session usage", () => {
   });
 
   it("registers independent modules without persistence, shell polling or non-TUI footer setup", async () => {
-    const handlers = new Map<string, Function[]>();
+    const handlers = new Map<string, ((...args: any[]) => unknown)[]>();
     const commands = new Map<string, any>();
-    const pi = { on: (name: string, fn: Function) => handlers.set(name, [...(handlers.get(name) ?? []), fn]), events: { on: vi.fn() }, registerCommand: (name: string, cmd: unknown) => commands.set(name, cmd) } as unknown as ExtensionAPI;
+    const pi = { on: (name: string, fn: (...args: any[]) => unknown) => handlers.set(name, [...(handlers.get(name) ?? []), fn]), events: { on: vi.fn() }, registerCommand: (name: string, cmd: unknown) => commands.set(name, cmd) } as unknown as ExtensionAPI;
     footer(pi); usage(pi);
     expect([...commands.keys()]).toEqual(["ptk-usage"]);
     expect(handlers.has("turn_end")).toBe(false);

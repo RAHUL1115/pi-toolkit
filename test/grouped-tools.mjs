@@ -299,15 +299,15 @@ assert.equal(leaderHasBackground(), true);
 assert.match(rendered(), /^• read demo\.txt 30 lines/m);
 assert.match(
 	rendered(),
-	/  └ read line 01\n    read line 02[\s\S]*    read line 10\n    \.\.\. \(10 more lines\)\n    read line 21[\s\S]*    read line 30\n\n• bash/,
+	/ {2}└ read line 01\n {4}read line 02[\s\S]* {4}read line 10\n {4}\.\.\. \(10 more lines\)\n {4}read line 21[\s\S]* {4}read line 30\n\n• bash/,
 );
 assert.doesNotMatch(rendered(), /read line 11/);
-assert.match(rendered(), /  └ bash line 01\n    bash line 02\n    \.\.\. \(26 more lines\)\n    bash line 29\n    bash line 30/);
+assert.match(rendered(), / {2}└ bash line 01\n {4}bash line 02\n {4}\.\.\. \(26 more lines\)\n {4}bash line 29\n {4}bash line 30/);
 assert.doesNotMatch(rendered(), /bash line 03/);
-assert.match(rendered(), /  └ write line 01\n    write line 02\n    \.\.\. \(26 more lines\)\n    write line 29\n    write line 30/);
+assert.match(rendered(), / {2}└ write line 01\n {4}write line 02\n {4}\.\.\. \(26 more lines\)\n {4}write line 29\n {4}write line 30/);
 assert.doesNotMatch(rendered(), /write line 03/);
 
-assert.match(rendered(50), /\n  │ /);
+assert.match(rendered(50), /\n {2}│ /);
 editor.handleInput("\x0f");
 assert.equal(expanded, true);
 assert.equal(leaderHasBackground(), true);
@@ -438,7 +438,7 @@ states["mutable-b"] = {};
 invalidations["mutable-a"] = 0;
 invalidations["mutable-b"] = 0;
 const mutableA = bash.renderCall(mutableAArgs, theme, context("mutable-a", mutableAArgs));
-const mutableB = bash.renderCall(mutableBArgs, theme, context("mutable-b", mutableBArgs));
+bash.renderCall(mutableBArgs, theme, context("mutable-b", mutableBArgs));
 await update({ message: { role: "assistant", content: [
 	{ type: "thinking", thinking: "" },
 	toolCall("mutable-a", "bash", mutableAArgs),

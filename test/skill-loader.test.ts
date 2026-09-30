@@ -111,7 +111,7 @@ describe("dollar skill loader", () => {
 		const branch = [
 			{ type: "custom", customType: "pi-toolkit:skill-loader", data: { loaded: ["alpha"] } },
 		];
-		const { ctx, notifications } = context(branch);
+		const { ctx } = context(branch);
 		await handlers.get("session_start")![0]({}, ctx);
 
 		const injected = await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx);

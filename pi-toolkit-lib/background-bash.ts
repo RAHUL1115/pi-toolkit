@@ -17,7 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { getLightModel } from "./unified-subagents/settings.js";
-import { selectLiteModel } from "./session-title.js";
+import { LITE_MODEL_ID, LITE_MODEL_PROVIDER, selectLiteModel } from "./session-title.js";
 import {
 	BackgroundTaskViewer,
 	type BackgroundTaskController,
@@ -751,6 +751,7 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 		const available = registry.getAvailable();
 		const configured = getLightModel();
 		const model = available.find((candidate) => `${candidate.provider}/${candidate.id}` === configured)
+			?? registry.find(LITE_MODEL_PROVIDER, LITE_MODEL_ID)
 			?? selectLiteModel(available);
 		if (!model) return undefined;
 		const response = await registry.complete(model, {

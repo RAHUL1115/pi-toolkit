@@ -40,7 +40,7 @@ describe("usage panel", () => {
     const { panel, bg } = setup();
     const lines = panel.render(60);
     expect(bg.mock.calls).toEqual([["searchMatchBg", " 1 day "], ["customMessageBg", " 7 days "], ["customMessageBg", " 30 days "]]);
-    expect(lines.join("\n")).not.toMatch(/[\[\]]/);
+    expect(lines.join("\n")).not.toMatch(/[[\]]/);
     panel.handleInput("\t"); bg.mockClear(); panel.render(60);
     expect(bg.mock.calls[1]).toEqual(["searchMatchBg", " 7 days "]);
   });
@@ -52,8 +52,8 @@ describe("usage panel", () => {
     expect(wide[1]).toBe("Estimated cost    ~$0.1270");
     expect(renderUsage(report, 0, 160, theme).slice(0, 7).map(line => line.trimEnd())).toEqual(wide.slice(0, 7));
     expect(wide[3]).toMatch(/^Input +112\.0k$/);
-    expect(wide[4]).toMatch(/^  Uncached +27\.6k$/);
-    expect(wide[5]).toMatch(/^  Cached reads +84\.4k$/);
+    expect(wide[4]).toMatch(/^ {2}Uncached +27\.6k$/);
+    expect(wide[5]).toMatch(/^ {2}Cached reads +84\.4k$/);
     expect(wide[6]).toMatch(/^Output +16\.4k$/);
     expect(wide.join("\n")).not.toContain("Cache writes");
     report.windows[0].cacheWrite = 1000;

@@ -171,7 +171,7 @@ async function setConfigOption(
   const option = options.find(
     (entry) => entry.category === category || entry.id === (category === "thought_level" ? "reasoning_effort" : category),
   );
-  if (!option || option.type !== "select") {
+  if (option?.type !== "select") {
     throw new Error(`Codex ACP adapter did not expose a ${category} session option.`);
   }
   const available = selectValues(option);

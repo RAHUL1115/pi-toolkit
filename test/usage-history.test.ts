@@ -13,6 +13,8 @@ const day = 86_400_000;
 const usage = { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 1, totalTokens: 10, cost: { total: 0.25 } };
 const message = (id: string, time = now) => ({ type: "message", id, parentId: null, timestamp: new Date(now).toISOString(), message: { role: "assistant", content: [], provider: "custom-real-provider", model: "any-model", api: "openai-responses", usage, timestamp: time, stopReason: "stop" } }) as unknown as SessionEntry;
 const header = { type: "session", version: 3, id: "ledger", timestamp: new Date(now).toISOString(), cwd: "/project" };
+type PanelFactory = (tui: any, theme: any, keybindings: any, done: () => void) => any;
+
 const theme = { bg: (_: string, text: string) => text, fg: (_: string, text: string) => text, bold: (text: string) => text };
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(dir => rm(dir, { recursive: true, force: true }))); });
@@ -22,7 +24,7 @@ async function ledger(dir: string, name: string, entries: unknown[]) { const pat
 describe("rolling ledger usage", () => {
   it("uses message instants and inclusive rolling boundaries, never session/entry age", () => {
     const { report, add } = historyAccumulator(now);
-    [now, now - day, now - day - 1, now - 7 * day, now - 7 * day - 1, now - 30 * day, now - 30 * day - 1, now + 1].forEach((time, i) => add(message(String(i), time)));
+    [now, now - day, now - day - 1, now - 7 * day, now - 7 * day - 1, now - 30 * day, now - 30 * day - 1, now + 1].forEach((time, i) => { add(message(String(i), time)); });
     expect(report.windows.map(w => w.total)).toEqual([20, 40, 60]);
     expect(report.windows.map(w => w.reasoning)).toEqual([2, 4, 6]);
     const m = message("legacy") as any;
@@ -142,10 +144,10 @@ describe("rolling ledger usage", () => {
   it("scans once per opening and cancels/closes on session shutdown", async () => {
     const scan = vi.spyOn(history, "scanUsageHistory").mockResolvedValue(historyAccumulator(now).report);
     try {
-      let command: any; let shutdown: Function = () => {}; let component: any;
+      let command: any; let shutdown: () => void = () => {}; let component: any;
       const tui = { terminal: { rows: 24 }, requestRender: vi.fn() };
-      registerUsage({ registerCommand: (_name: string, cmd: any) => { command = cmd; }, on: (_name: string, fn: Function) => { shutdown = fn; } } as any);
-      const ctx = { mode: "tui", sessionManager: SessionManager.inMemory(), ui: { custom: (factory: Function) => new Promise<void>(resolve => { component = factory(tui, theme, {}, resolve); }) } };
+      registerUsage({ registerCommand: (_name: string, cmd: any) => { command = cmd; }, on: (_name: string, fn: () => void) => { shutdown = fn; } } as any);
+      const ctx = { mode: "tui", sessionManager: SessionManager.inMemory(), ui: { custom: (factory: PanelFactory) => new Promise<void>(resolve => { component = factory(tui, theme, {}, resolve); }) } };
       const running = command.handler("", ctx);
       await vi.waitFor(() => expect(component.render(100).join("\n")).toContain(" 1 day "));
       component.handleInput("\t"); component.render(100); component.invalidate(); component.render(80);
@@ -163,7 +165,7 @@ describe("rolling ledger usage", () => {
       let command: any; let component: any;
       const tui = { terminal: { rows: 24 }, requestRender: vi.fn() };
       registerUsage({ registerCommand: (_name: string, cmd: any) => { command = cmd; }, on() {} } as any);
-      const ctx = { mode: "tui", sessionManager: SessionManager.inMemory(), ui: { custom: (factory: Function) => new Promise<void>(resolve => { component = factory(tui, theme, {}, resolve); }) } };
+      const ctx = { mode: "tui", sessionManager: SessionManager.inMemory(), ui: { custom: (factory: PanelFactory) => new Promise<void>(resolve => { component = factory(tui, theme, {}, resolve); }) } };
       const running = command.handler("", ctx);
       expect(component.render(100)[0]).toContain("Reading local Pi ledgers");
       component.handleInput("\x1b"); await running; await Promise.resolve();

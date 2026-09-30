@@ -2,15 +2,38 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const TITLE_ENTRY = "pi-toolkit:auto-title";
+export const LITE_MODEL_PROVIDER = "ptk";
+export const LITE_MODEL_ID = "lite";
 const LITE_MODEL_HINTS = ["luna", "mini", "haiku", "flash", "lite", "small"];
 
+function isToolkitLiteVirtualModel(model: Model<any>): boolean {
+	return model.provider === LITE_MODEL_PROVIDER && model.id === LITE_MODEL_ID;
+}
+
 export function selectLiteModel(models: readonly Model<any>[]): Model<any> | undefined {
+	const physical = models.filter((model) => !isToolkitLiteVirtualModel(model) && model.api !== "pi-virtual");
 	for (const hint of LITE_MODEL_HINTS) {
 		const token = new RegExp(`(^|[^a-z0-9])${hint}([^a-z0-9]|$)`, "i");
-		const match = models.find((model) => token.test(`${model.id} ${model.name ?? ""}`));
+		const match = physical.find((model) => token.test(`${model.id} ${model.name ?? ""}`));
 		if (match) return match;
 	}
 	return undefined;
+}
+
+export function registerLiteVirtualModel(pi: ExtensionAPI): void {
+	(pi as any).registerVirtualModel?.({
+		provider: LITE_MODEL_PROVIDER,
+		id: LITE_MODEL_ID,
+		name: "Lite",
+		thinkingLevels: ["off", "low", "medium"],
+		route(request: any, ctx: ExtensionContext) {
+			const sticky = request.failed ?? (request.reason !== "user" ? request.previous : undefined);
+			if (sticky) return { model: sticky.model, thinkingLevel: sticky.thinkingLevel ?? "medium" };
+			const model = selectLiteModel(ctx.modelRegistry.getAvailable());
+			if (!model) throw new Error("No lightweight physical model is available");
+			return { model, thinkingLevel: request.thinkingLevel };
+		},
+	});
 }
 
 function contentText(content: unknown): string {
@@ -46,10 +69,9 @@ export function cleanSessionTitle(raw: string): string {
 	return Array.from(title).slice(0, 72).join("").trim();
 }
 
-function availableModels(ctx: ExtensionContext): Model<any>[] {
-	return ctx.scopedModels.length
-		? ctx.scopedModels.map((entry) => entry.model)
-		: ctx.modelRegistry.getAvailable();
+function titleModel(ctx: ExtensionContext): Model<any> | undefined {
+	if (ctx.scopedModels.length) return selectLiteModel(ctx.scopedModels.map((entry) => entry.model));
+	return ctx.modelRegistry.find(LITE_MODEL_PROVIDER, LITE_MODEL_ID) ?? selectLiteModel(ctx.modelRegistry.getAvailable());
 }
 
 function restoredGeneratedTitle(pi: ExtensionAPI, ctx: ExtensionContext): string | undefined {
@@ -85,7 +107,7 @@ export default function registerAutomaticSessionTitles(pi: ExtensionAPI): void {
 		if (currentName && currentName !== generatedTitle) return;
 
 		const transcript = titleTranscript(event.messages);
-		const model = selectLiteModel(availableModels(ctx));
+		const model = titleModel(ctx);
 		if (!transcript || !model) return;
 
 		cancel();

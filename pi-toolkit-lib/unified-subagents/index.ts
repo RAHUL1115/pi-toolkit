@@ -58,6 +58,7 @@ import {
 import { getForegroundOutcomeNote, getStatusNote, partialOutputSuffix } from "./status-note.js";
 import { AGENT_HARNESSES, type AgentConfig, type AgentInvocation, type AgentMentionMode, type AgentRecord, type JoinMode, type NotificationDetails, type SubagentType, type ViewerMarkdownMode, type WidgetMode } from "./types.js";
 import { createMentionProvider, mentionRoster, type TypeInfo } from "./ui/agent-mention.js";
+import { AgentListViewer } from "./ui/agent-list-viewer.js";
 import {
   type AgentActivity,
   type AgentDetails,
@@ -79,7 +80,6 @@ import {
 import { CONVERSATION_OVERLAY_OPTIONS, ConversationViewer } from "./ui/conversation-viewer.js";
 import { FleetList, type FleetUICtx, type FleetWorkflow } from "./ui/fleet-list.js";
 import { showSchedulesMenu } from "./ui/schedule-menu.js";
-import { selectItem } from "./ui/select-item.js";
 import { renderWorkflowCard, renderWorkflowEntryCard } from "./ui/workflow-card.js";
 import { openWorkflowFromFleet, showWorkflowsMenu, type WorkflowMenuDeps } from "./ui/workflow-menu.js";
 import { getLifetimeCost, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage, PendingUsagePool, toReportedUsage } from "./usage.js";
@@ -3181,25 +3181,18 @@ Terse command-style prompts produce shallow, generic work.
   }
 
   async function showRunningAgents(ctx: ExtensionCommandContext) {
-    const agents = manager.listAgents().filter(isTopLevelAgent);
-    if (agents.length === 0) {
-      ctx.ui.notify("No agents.", "info");
+    if (ctx.mode !== "tui") {
+      ctx.ui.notify("/agents requires TUI mode", "error");
       return;
     }
-
-    // Numbered + item-paired. Two same-type agents spawned together with the
-    // same description render identically here, and resolving the choice by
-    // string match would open whichever came first.
-    const record = await selectItem(ctx.ui, "Running agents", agents, a => {
-      const dn = getDisplayName(a.type);
-      const dur = formatDuration(a.startedAt, a.completedAt);
-      return `${dn} (${a.description}) · ${a.toolUses} tools · ${a.status} · ${dur}`;
-    });
-    if (!record) return;
-
-    await viewAgentConversation(ctx, record);
-    // Back-navigation: re-show the list
-    await showRunningAgents(ctx);
+    let selectedId: string | undefined;
+    while (true) {
+      const record: AgentRecord | undefined = await ctx.ui.custom<AgentRecord | undefined>((tui, theme, _keys, done) =>
+        new AgentListViewer(tui, () => manager.listAgents().filter(isTopLevelAgent), theme, done, selectedId));
+      if (!record) return;
+      selectedId = record.id;
+      await viewAgentConversation(ctx, record);
+    }
   }
 
   async function viewAgentConversation(ctx: ExtensionCommandContext, record: AgentRecord) {

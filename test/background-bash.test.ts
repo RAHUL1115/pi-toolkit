@@ -337,7 +337,7 @@ describe("background bash", () => {
 				ctx,
 			);
 			await new Promise((resolve) => setTimeout(resolve, 100));
-			shortcuts.get("ctrl+b")?.(ctx);
+			shortcuts.get("alt+b")?.(ctx);
 			await running;
 			const listed = await tools.get("bash_jobs").execute("call-title-list", {});
 			expect(listed.details.jobs[0]).toMatchObject({ id: "bash-1", title: "Dev server" });

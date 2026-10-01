@@ -88,7 +88,7 @@ Use `/goal <objective>` to activate Goal mode. `/goal` opens its manager and set
 |---|---|
 | `Ctrl+O` | Toggle grouped tool output between collapsed and fully expanded |
 | `Alt+O` | Cycle the collapsed layout: `one line` → `list` → `normal` |
-| `Ctrl+B` | Detach a blocking foreground agent first; otherwise detach foreground Bash |
+| `Alt+B` | Detach foreground Bash |
 | `Ctrl+Backspace` | Delete the previous word on supported Windows terminals when enabled |
 
 `Ctrl+O` uses Pi's configurable `app.tools.expand` action. `Alt+O` is currently fixed by the extension and remains distinguishable from `Ctrl+O` without terminal-specific configuration.
@@ -180,7 +180,7 @@ The toolkit extends Pi's existing `bash` tool with optional `run_in_background` 
 }
 ```
 
-Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the below-editor activity surface exposes a Tasks tab; the fixed footer does not add background-task counts.
+Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Alt+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the below-editor activity surface exposes a Tasks tab; the fixed footer does not add background-task counts.
 
 Open `/tasks` for the live task list and selected task's five-line output window. Use Up/Down to select a task, Ctrl+Alt+Up/Down to scroll output one line, Alt+Up/Down to move one page, and Ctrl+Up/Down to jump to the top or resume following the tail. Page Up/Page Down, Home/End, and `g`/`G` remain aliases. Selection follows the task ID when the list changes. Destructive actions require the same key twice: `x x` stops a running task but retains its record and output, `c c` or Delete twice clears a selected finished task, and `C C` clears all finished tasks. Duplicate asynchronous actions are ignored while one is pending. The agent can also use:
 

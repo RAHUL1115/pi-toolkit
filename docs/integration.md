@@ -29,7 +29,7 @@ Hermes Memory and the MCP adapter are separate extension packages, not Toolkit d
 - `/agents-options`: agent definitions, schedules, settings, and **Workflows** inspector.
 - `/tasks`: background process manager.
 - `/goal`: Goal manager/settings; `/goal <objective>` starts explicit Goal mode.
-- `/economy on|off|stats|allow <path>`: optional large-read guard and one-read permits.
+- `/economy on|off|stats|allow <path>`: default-on large-read guard and one-read permits; `/economy off` disables the guard for the current session.
 - `/ptk-usage`: rolling usage dashboard.
 
 The `Agent` tool is ordinary delegation. `SubagentWorkflow` requires explicit user opt-in. `context_tool` requires its exact name in the latest user request. Goal tools being visible does not mean Goal mode is active: completion, blocking, and waiting require the current Goal contract and matching ID.

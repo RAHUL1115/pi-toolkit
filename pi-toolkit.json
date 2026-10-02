@@ -3,5 +3,6 @@
   "compactTools": true,
   "ctrlBackspace": true,
   "dollarSkills": true,
-  "toolView": "list"
+  "toolView": "list",
+  "liteReasoning": "low"
 }

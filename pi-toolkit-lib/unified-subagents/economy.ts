@@ -109,7 +109,7 @@ export function registerEconomy(pi: ExtensionAPI) {
   const usage: LifetimeUsage = { input: 0, output: 0, cacheWrite: 0 };
   const accountUsage = (delta: LifetimeUsage) => addUsage(usage, delta);
   if (inChildSessionContext()) return accountUsage;
-  let enabled = false;
+  let enabled = true;
   let blocked = 0;
   let allowed = 0;
   let estimatedTokensSaved = 0;
@@ -117,7 +117,7 @@ export function registerEconomy(pi: ExtensionAPI) {
   let pricedSavings = false;
   const permits = new Set<string>();
   pi.registerCommand("economy", {
-    description: "Opt-in large text read guard: on | off | stats | allow <path> (one read)",
+    description: "Large text read guard (on by default): on | off | stats | allow <path> (one read)",
     handler: async (args, ctx) => {
       const command = args.trim();
       if (command === "on") enabled = true;
@@ -133,7 +133,7 @@ export function registerEconomy(pi: ExtensionAPI) {
       ctx.ui.notify(`Economy ${enabled ? "on" : "off"}; threshold ${ECONOMY_READ_BYTES} requested bytes; blocked reads ${blocked}; permits used ${allowed}; estimated parent input avoided ~${estimatedTokensSaved.toLocaleString()} tokens / ${cost}. Bulk-reader reported usage since extension load (including while economy is off): ${JSON.stringify(usage)}. Savings are a local bytes/4 estimate before bulk-reader spend and future cache effects.`, "info");
     },
   });
-  pi.on("session_before_switch", () => { enabled = false; permits.clear(); });
+  pi.on("session_before_switch", () => { enabled = true; permits.clear(); });
   pi.on("tool_call", async (event, ctx) => {
     if (!enabled || event.toolName !== "read" || typeof event.input.path !== "string") return;
     const { offset, limit } = event.input;

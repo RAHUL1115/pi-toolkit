@@ -1,5 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_LITE_REASONING, type LiteReasoningEffort } from "./toolkit-settings.js";
 
 const TITLE_ENTRY = "pi-toolkit:auto-title";
 export const LITE_MODEL_PROVIDER = "ptk";
@@ -42,7 +43,32 @@ export function selectLiteModel(models: readonly Model<any>[]): Model<any> | und
 	return undefined;
 }
 
-export function registerLiteVirtualModel(pi: ExtensionAPI): void {
+export type LiteModelPreference = () => string | undefined;
+export type LiteReasoningPreference = () => LiteReasoningEffort;
+
+/** A manual provider/id pin never falls back to automatic selection. */
+export function resolveLiteModel(models: readonly Model<any>[], configured?: string): Model<any> | undefined {
+	if (!configured) return selectLiteModel(models);
+	return models.find((model) => model.api !== "pi-virtual"
+		&& !isToolkitLiteVirtualModel(model)
+		&& `${model.provider}/${model.id}` === configured);
+}
+
+export function liteModelChoices(models: readonly Model<any>[], configured?: string): string[] {
+	const physical = models.filter((model) => model.api !== "pi-virtual" && !isToolkitLiteVirtualModel(model));
+	const choices = physical.map((model) => `${model.provider}/${model.id}`);
+	const virtualNames = new Set(models.filter((model) => model.api === "pi-virtual")
+		.map((model) => `${model.provider}/${model.id}`));
+	virtualNames.add(`${LITE_MODEL_PROVIDER}/${LITE_MODEL_ID}`);
+	if (configured && !virtualNames.has(configured)) choices.push(configured);
+	return ["Auto", ...[...new Set(choices)].sort()];
+}
+
+export function registerLiteVirtualModel(
+	pi: ExtensionAPI,
+	preference: LiteModelPreference = () => undefined,
+	reasoning: LiteReasoningPreference = () => DEFAULT_LITE_REASONING,
+): void {
 	pi.registerVirtualModel?.({
 		provider: LITE_MODEL_PROVIDER,
 		id: LITE_MODEL_ID,
@@ -50,10 +76,15 @@ export function registerLiteVirtualModel(pi: ExtensionAPI): void {
 		thinkingLevels: ["off", "low", "medium"],
 		route(request, ctx) {
 			const sticky = request.failed ?? (request.reason !== "user" ? request.previous : undefined);
-			if (sticky) return { model: sticky.model, thinkingLevel: sticky.thinkingLevel ?? "medium" };
-			const model = selectLiteModel(ctx.modelRegistry.getAvailable());
-			if (!model) throw new Error("No lightweight physical model is available");
-			return { model, thinkingLevel: request.thinkingLevel };
+			if (sticky) return { model: sticky.model, thinkingLevel: sticky.thinkingLevel ?? reasoning() };
+			const configured = preference();
+			const model = resolveLiteModel(ctx.modelRegistry.getAvailable(), configured);
+			if (!model) throw new Error(configured
+				? `Configured Lite model ${configured} is unavailable; choose another model or Auto in /ptk`
+				: "No lightweight physical model is available");
+			// Toolkit metadata calls have no user-selected effort. Interactive and
+			// subagent requests keep their explicitly selected Pi thinking level.
+			return { model, thinkingLevel: request.reason === "direct" ? reasoning() : request.thinkingLevel ?? reasoning() };
 		},
 	});
 }
@@ -91,9 +122,9 @@ export function cleanSessionTitle(raw: string): string {
 	return Array.from(title).slice(0, 72).join("").trim();
 }
 
-function titleModel(ctx: ExtensionContext): Model<any> | undefined {
-	if (ctx.scopedModels.length) return selectLiteModel(ctx.scopedModels.map((entry) => entry.model));
-	return ctx.modelRegistry.find(LITE_MODEL_PROVIDER, LITE_MODEL_ID) ?? selectLiteModel(ctx.modelRegistry.getAvailable());
+function titleModel(ctx: ExtensionContext, configured?: string): Model<any> | undefined {
+	if (ctx.scopedModels.length) return resolveLiteModel(ctx.scopedModels.map((entry) => entry.model), configured);
+	return ctx.modelRegistry.find(LITE_MODEL_PROVIDER, LITE_MODEL_ID) ?? resolveLiteModel(ctx.modelRegistry.getAvailable(), configured);
 }
 
 function restoredGeneratedTitle(pi: ExtensionAPI, ctx: ExtensionContext): string | undefined {
@@ -106,7 +137,7 @@ function restoredGeneratedTitle(pi: ExtensionAPI, ctx: ExtensionContext): string
 	return typeof name === "string" && name === pi.getSessionName() ? name : undefined;
 }
 
-export default function registerAutomaticSessionTitles(pi: ExtensionAPI): void {
+export default function registerAutomaticSessionTitles(pi: ExtensionAPI, preference: LiteModelPreference = () => undefined): void {
 	let sessionId: string | undefined;
 	let generatedTitle: string | undefined;
 	let generation = 0;
@@ -129,7 +160,7 @@ export default function registerAutomaticSessionTitles(pi: ExtensionAPI): void {
 		if (currentName && currentName !== generatedTitle) return;
 
 		const transcript = titleTranscript(event.messages);
-		const model = titleModel(ctx);
+		const model = titleModel(ctx, preference());
 		if (!transcript || !model) return;
 
 		cancel();

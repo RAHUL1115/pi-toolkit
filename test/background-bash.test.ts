@@ -6,7 +6,7 @@ import { BackgroundBashManager, registerBackgroundBash } from "../pi-toolkit-lib
 import { BackgroundTaskViewer, type BackgroundTaskController, type BackgroundTaskItem } from "../pi-toolkit-lib/background-task-viewer.ts";
 import { backgroundStatus } from "../pi-toolkit-lib/footer.ts";
 
-function harness(autoBackgroundMs = 60_000) {
+function harness(autoBackgroundMs = 60_000, preference?: () => string | undefined) {
 	const tools = new Map<string, any>();
 	const commands = new Map<string, any>();
 	const renderers = new Map<string, any>();
@@ -29,7 +29,7 @@ function harness(autoBackgroundMs = 60_000) {
 			if (event === "session_shutdown") shutdownHandlers.push(handler);
 		},
 	} as any;
-	const bash = registerBackgroundBash(pi, process.cwd(), autoBackgroundMs);
+	const bash = registerBackgroundBash(pi, process.cwd(), autoBackgroundMs, preference);
 	tools.set("bash", bash);
 	const ctx = {
 		mode: "tui",
@@ -445,22 +445,43 @@ describe("background bash", () => {
 
 	it("uses a tool-free, single-message model call for Bash deadline reviews", async () => {
 		const { ctx, shutdown, tools } = harness();
-		const calls: Array<{ request: any; options: any }> = [];
+		const calls: Array<{ model: any; request: any; options: any }> = [];
 		ctx.modelRegistry = {
-			find: () => undefined,
+			find: () => ({ provider: "ptk", id: "lite", api: "pi-virtual" }),
 			getAvailable: () => [{ provider: "test", id: "fast-mini", name: "fast mini" }],
-			complete: async (_model: unknown, request: any, options: any) => {
-				calls.push({ request, options });
+			complete: async (model: unknown, request: any, options: any) => {
+				calls.push({ model, request, options });
 				return { content: [{ type: "text", text: '{"extend_seconds":0}' }] };
 			},
 		};
 		try {
 			await tools.get("bash").execute("review", { command: "sleep 30", timeout: 0.05, run_in_background: true }, undefined, undefined, ctx);
 			await waitFor(() => calls.length, (count) => count === 1, "direct model review");
+			expect(calls[0].model).toMatchObject({ provider: "ptk", id: "lite" });
 			expect(calls[0].request.messages).toHaveLength(1);
 			expect(calls[0].request.tools).toBeUndefined();
 			expect(calls[0].options.timeoutMs).toBe(15_000);
 			expect(JSON.parse(calls[0].request.messages[0].content[0].text)).toMatchObject({ reviewsUsed: 1, extensions: [] });
+		} finally {
+			await shutdown();
+		}
+	});
+
+	it("uses the manual Lite pin when the virtual alias is unavailable", async () => {
+		const { ctx, shutdown, tools } = harness(60_000, () => "test/gpt-5.6-luna");
+		const calls: any[] = [];
+		ctx.modelRegistry = {
+			find: () => undefined,
+			getAvailable: () => ["gpt-5.6-luna", "gpt-6-luna"].map((id) => ({ provider: "test", id, name: id })),
+			complete: async (model: any) => {
+				calls.push(model);
+				return { content: [{ type: "text", text: '{"extend_seconds":0}' }] };
+			},
+		};
+		try {
+			await tools.get("bash").execute("pinned-review", { command: "sleep 30", timeout: 0.05, run_in_background: true }, undefined, undefined, ctx);
+			await waitFor(() => calls.length, (count) => count === 1, "pinned model review");
+			expect(calls[0].id).toBe("gpt-5.6-luna");
 		} finally {
 			await shutdown();
 		}

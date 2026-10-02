@@ -18,8 +18,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { TruncatedText } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { getLightModel } from "./unified-subagents/settings.js";
-import { LITE_MODEL_ID, LITE_MODEL_PROVIDER, selectLiteModel } from "./session-title.js";
+import { LITE_MODEL_ID, LITE_MODEL_PROVIDER, resolveLiteModel, type LiteModelPreference } from "./session-title.js";
 import {
 	BackgroundTaskViewer,
 	type BackgroundTaskController,
@@ -746,16 +745,14 @@ export type BackgroundBashToolDefinition = ToolDefinition<any, any, any> & {
 	readonly taskTools: ToolDefinition<any, any, any>[];
 };
 
-export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), autoBackgroundMs = 60_000): BackgroundBashToolDefinition {
+export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), autoBackgroundMs = 60_000, preference: LiteModelPreference = () => undefined): BackgroundBashToolDefinition {
 	let latestContext: ExtensionContext | undefined;
 	const reviewTimeout: TimeoutReview = async (details) => {
 		const registry = latestContext?.modelRegistry;
 		if (!registry) return undefined;
 		const available = registry.getAvailable();
-		const configured = getLightModel();
-		const model = available.find((candidate) => `${candidate.provider}/${candidate.id}` === configured)
-			?? registry.find(LITE_MODEL_PROVIDER, LITE_MODEL_ID)
-			?? selectLiteModel(available);
+		const model = registry.find(LITE_MODEL_PROVIDER, LITE_MODEL_ID)
+			?? resolveLiteModel(available, preference());
 		if (!model) return undefined;
 		const response = await registry.complete(model, {
 			systemPrompt: `You only decide whether an already-running Bash command needs more time. No tools are available. Return ONLY JSON: {"extend_seconds": number} to continue or {"extend_seconds": 0} to stop. Base the decision on command, elapsed time, recent output, and review history. Use newOutputBytes to detect progress since the previous review; lack of output alone is not proof of a hang. Avoid repeated extensions without evidence of progress. Choose 1-${MAX_EXTENSION_SECONDS} seconds for a useful extension. At most ${MAX_TIMEOUT_EXTENSIONS} extensions are allowed.`,

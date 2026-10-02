@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -35,6 +35,8 @@ import registerFooter from "./pi-toolkit-lib/footer.js";
 import registerGoals from "./pi-toolkit-lib/goals.js";
 import registerUsage from "./pi-toolkit-lib/usage.js";
 import registerAutomaticSessionTitles, { registerLiteVirtualModel } from "./pi-toolkit-lib/session-title.js";
+import { liteModelSetting } from "./pi-toolkit-lib/lite-model-setting.js";
+import { LITE_REASONING_LEVELS, loadToolkitSettings, saveToolkitSettings, type LiteReasoningEffort, type ToolkitSettings as Settings } from "./pi-toolkit-lib/toolkit-settings.js";
 import registerSkillLoader from "./pi-toolkit-lib/skill-loader.js";
 import { registerUnifiedSubagents } from "./pi-toolkit-lib/unified-subagents/index.js";
 
@@ -43,8 +45,6 @@ const READ_PREVIEW_EDGE_LINES = 10;
 const TOOL_PREVIEW_EDGE_LINES = 2;
 
 type ToolDetail = "collapsed" | "expanded";
-type ToolView = "one line" | "list" | "normal";
-type Settings = { autoSessionTitles: boolean; compactTools: boolean; ctrlBackspace: boolean; dollarSkills: boolean; toolView: ToolView };
 type Args = Record<string, unknown>;
 type Details = Record<string, unknown> | undefined;
 type RenderTheme = Parameters<NonNullable<ToolDefinition<any, any, any>["renderCall"]>>[1];
@@ -68,23 +68,6 @@ type ToolGroup = {
 type CompactState = { call?: GroupCall };
 type Message = ReturnType<SessionManager["buildSessionContext"]>["messages"][number];
 
-function loadSettings(): Settings {
-	try {
-		const stored = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
-		return {
-			autoSessionTitles: stored.autoSessionTitles !== false,
-			compactTools: stored.compactTools !== false,
-			ctrlBackspace: stored.ctrlBackspace !== false,
-			dollarSkills: stored.dollarSkills !== false,
-			toolView: stored.toolView === "one line" || stored.toolView === "compact"
-				? "one line"
-				: stored.toolView === "normal" ? "normal" : "list",
-		};
-	} catch {
-		return { autoSessionTitles: true, compactTools: true, ctrlBackspace: true, dollarSkills: true, toolView: "list" };
-	}
-}
-
 function loadOutputPad(): number {
 	try {
 		return JSON.parse(readFileSync(resolve(getAgentDir(), "settings.json"), "utf8")).outputPad === 0 ? 0 : 1;
@@ -94,7 +77,7 @@ function loadOutputPad(): number {
 }
 
 function saveSettings(settings: Settings): void {
-	writeFileSync(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+	saveToolkitSettings(SETTINGS_PATH, settings);
 }
 
 function display(value: unknown, fallback = "", compact = true): string {
@@ -846,20 +829,21 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	registerFooter(pi);
 	registerUsage(pi);
 	registerTranscriptMarkers(pi);
-	const settings = loadSettings();
-	const backgroundBash = registerBackgroundBash(pi);
+	const settings = loadToolkitSettings(SETTINGS_PATH);
+	const litePreference = () => settings.liteModel;
+	const backgroundBash = registerBackgroundBash(pi, undefined, undefined, litePreference);
 	const toolControls = settings.compactTools ? registerCompactTools(pi, settings, backgroundBash) : undefined;
 	if (!settings.compactTools) pi.registerTool(backgroundBash);
 	registerWorkflowEditor(pi, settings, toolControls);
 	registerFinalResponseTracking(pi);
-	registerLiteVirtualModel(pi);
+	registerLiteVirtualModel(pi, litePreference, () => settings.liteReasoning);
 	if (settings.dollarSkills) registerSkillLoader(pi);
-	if (settings.autoSessionTitles) registerAutomaticSessionTitles(pi);
+	if (settings.autoSessionTitles) registerAutomaticSessionTitles(pi, litePreference);
 	registerUnifiedSubagents(pi, backgroundBash.taskController);
 	registerGoals(pi);
 
 	pi.registerCommand("ptk", {
-		description: "Toggle Pi Toolkit workflow features",
+		description: "Configure Pi Toolkit workflow features and Lite model",
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify("/ptk requires TUI mode", "error");
@@ -867,6 +851,14 @@ export default function piToolkit(pi: ExtensionAPI): void {
 			}
 			let changed = false;
 			const items: SettingItem[] = [
+				liteModelSetting(ctx.modelRegistry.getAvailable(), settings.liteModel),
+				{
+					id: "liteReasoning",
+					label: "Lite reasoning effort",
+					description: "Default effort for ptk/lite metadata calls. Explicit Pi/subagent thinking selections take precedence.",
+					currentValue: settings.liteReasoning,
+					values: [...LITE_REASONING_LEVELS],
+				},
 				{
 					id: "autoSessionTitles",
 					label: "Automatic session titles",
@@ -904,7 +896,11 @@ export default function piToolkit(pi: ExtensionAPI): void {
 					items.length + 2,
 					getSettingsListTheme(),
 					(id, value) => {
-						settings[id as "autoSessionTitles" | "compactTools" | "ctrlBackspace" | "dollarSkills"] = value === "on";
+						if (id === "liteModel") {
+							settings.liteModel = value === "Auto" ? undefined : value;
+							list.updateValue(id, liteModelSetting(ctx.modelRegistry.getAvailable(), settings.liteModel).currentValue);
+						} else if (id === "liteReasoning") settings.liteReasoning = value as LiteReasoningEffort;
+						else settings[id as "autoSessionTitles" | "compactTools" | "ctrlBackspace" | "dollarSkills"] = value === "on";
 						saveSettings(settings);
 						changed = true;
 					},

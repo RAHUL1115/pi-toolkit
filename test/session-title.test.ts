@@ -4,6 +4,8 @@ import registerAutomaticSessionTitles, {
 	LITE_MODEL_PROVIDER,
 	cleanSessionTitle,
 	registerLiteVirtualModel,
+	resolveLiteModel,
+	liteModelChoices,
 	selectLiteModel,
 	titleTranscript,
 } from "../pi-toolkit-lib/session-title.ts";
@@ -99,6 +101,72 @@ describe("automatic session titles", () => {
 		))).toMatchObject({ model: { id: "gpt-6-luna" }, thinkingLevel: "low" });
 	});
 
+	it("keeps Auto dynamic but respects a manual pin even when newer models appear", () => {
+		const registerVirtualModel = vi.fn();
+		let configured: string | undefined;
+		registerLiteVirtualModel({ registerVirtualModel } as any, () => configured);
+		const { route } = registerVirtualModel.mock.calls[0]![0];
+		let available = [model("gpt-5.6-luna")];
+		const ctx = { modelRegistry: { getAvailable: () => available } };
+		const request = { reason: "user", thinkingLevel: "low" };
+		expect(route(request, ctx).model.id).toBe("gpt-5.6-luna");
+		available = [...available, model("gpt-6-luna")];
+		expect(route(request, ctx).model.id).toBe("gpt-6-luna");
+		configured = "test/gpt-5.6-luna";
+		expect(route(request, ctx).model.id).toBe("gpt-5.6-luna");
+		available.push(model("gpt-7-luna"));
+		expect(route(request, ctx).model.id).toBe("gpt-5.6-luna");
+		configured = undefined;
+		expect(route(request, ctx).model.id).toBe("gpt-7-luna");
+	});
+
+	it("never routes to a virtual model or silently replaces a missing manual pin", () => {
+		const physical = model("gpt-6-luna");
+		const virtual = { ...model("gpt-99-luna"), api: "pi-virtual" };
+		const alias = { ...model("lite"), provider: "ptk", api: "pi-virtual" };
+		const available = [virtual, alias, physical];
+		expect(resolveLiteModel(available)).toBe(physical);
+		expect(resolveLiteModel(available, "test/gpt-99-luna")).toBeUndefined();
+		expect(resolveLiteModel(available, "ptk/lite")).toBeUndefined();
+		expect(resolveLiteModel(available, "test/missing")).toBeUndefined();
+		expect(liteModelChoices(available, "test/gpt-99-luna")).toEqual(["Auto", "test/gpt-6-luna"]);
+		expect(liteModelChoices(available, "ptk/lite")).toEqual(["Auto", "test/gpt-6-luna"]);
+		expect(liteModelChoices(available, "test/missing")).toContain("test/missing");
+		const registerVirtualModel = vi.fn();
+		registerLiteVirtualModel({ registerVirtualModel } as any, () => "test/missing");
+		expect(() => registerVirtualModel.mock.calls[0]![0].route(
+			{ reason: "user" }, { modelRegistry: { getAvailable: () => available } },
+		)).toThrow("Configured Lite model test/missing is unavailable");
+	});
+
+	it("uses configurable default reasoning for direct calls without overriding explicit Pi effort", () => {
+		const registerVirtualModel = vi.fn();
+		let effort: "off" | "low" | "medium" = "low";
+		registerLiteVirtualModel({ registerVirtualModel } as any, () => undefined, () => effort);
+		const { route } = registerVirtualModel.mock.calls[0]![0];
+		const ctx = { modelRegistry: { getAvailable: () => [model("gpt-6-luna")] } };
+		expect(route({ reason: "direct", thinkingLevel: "off" }, ctx).thinkingLevel).toBe("low");
+		effort = "medium";
+		expect(route({ reason: "direct", thinkingLevel: "off" }, ctx).thinkingLevel).toBe("medium");
+		expect(route({ reason: "user", thinkingLevel: "off" }, ctx).thinkingLevel).toBe("off");
+		expect(route({ reason: "user", thinkingLevel: "low" }, ctx).thinkingLevel).toBe("low");
+		expect(route({ reason: "user" }, ctx).thinkingLevel).toBe("medium");
+		effort = "off";
+		expect(route({ reason: "direct" }, ctx).thinkingLevel).toBe("off");
+	});
+
+	it("retains sticky retry and continuation routes", () => {
+		const registerVirtualModel = vi.fn();
+		registerLiteVirtualModel({ registerVirtualModel } as any, () => "test/gpt-6-luna");
+		const { route } = registerVirtualModel.mock.calls[0]![0];
+		const sticky = { model: model("gpt-5.6-luna"), thinkingLevel: "low" };
+		const getAvailable = vi.fn();
+		const ctx = { modelRegistry: { getAvailable } };
+		expect(route({ reason: "retry", failed: sticky }, ctx)).toEqual(sticky);
+		expect(route({ reason: "continuation", previous: sticky }, ctx)).toEqual(sticky);
+		expect(getAvailable).not.toHaveBeenCalled();
+	});
+
 	it("builds and cleans bounded title text", () => {
 		expect(titleTranscript([{ role: "toolResult", content: "ignore" }, { role: "user", content: "  fix   auth  " }])).toBe("user: fix auth");
 		expect(cleanSessionTitle('"Title: Fix authentication flow."\nextra')).toBe("Fix authentication flow");
@@ -152,6 +220,22 @@ describe("automatic session titles", () => {
 		expect(complete.mock.calls[0]?.[0].id).toBe("claude-haiku-4-5");
 		expect(ctx.modelRegistry.find).not.toHaveBeenCalled();
 		expect(ctx.modelRegistry.getAvailable).not.toHaveBeenCalled();
+	});
+
+	it("honors manual pins in scoped titles and skips an out-of-scope pin", async () => {
+		const { pi, ctx, complete, handlers } = harness();
+		let configured = "test/gpt-5.6-luna";
+		registerAutomaticSessionTitles(pi, () => configured);
+		ctx.scopedModels = [model("gpt-5.6-luna"), model("gpt-6-luna")].map((model) => ({ model }));
+		complete.mockResolvedValue({ content: [{ type: "text", text: "Pinned title" }] });
+		await handlers.get("session_start")?.({}, ctx);
+		handlers.get("agent_end")?.(turn("manual pin"), ctx);
+		await flushTitle();
+		expect(complete.mock.calls[0]?.[0].id).toBe("gpt-5.6-luna");
+		configured = "test/not-in-scope";
+		handlers.get("agent_end")?.(turn("out of scope"), ctx);
+		await flushTitle();
+		expect(complete).toHaveBeenCalledTimes(1);
 	});
 
 	it("continues refreshing generated titles after resume", async () => {

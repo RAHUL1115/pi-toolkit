@@ -1,6 +1,6 @@
 # Economy mode
 
-`/economy on` opts into a parent-only `read` guard. It starts off and resets off when switching sessions. Reads requesting more than 16 KiB are blocked, not summarized. Small `offset` + `limit` ranges are permitted even in large files; offset alone means the remaining file. Native read errors remain native. Supported image signatures are exempt; this budgets text rather than image attachments.
+Economy enables a parent-only `read` guard by default and restores that enabled default when switching sessions. `/economy off` disables it for the current session; `/economy on` re-enables it. One-read permits are cleared when switching sessions. Reads requesting more than 16 KiB are blocked, not summarized. Small `offset` + `limit` ranges are permitted even in large files; offset alone means the remaining file. Native read errors remain native. Supported image signatures are exempt; this budgets text rather than image attachments.
 
 After a block, either read a precise smaller range or call `Agent` with `subagent_type: "bulk-reader"`, explicit paths, and a precise question. The reserved built-in uses the configured light model with low thinking, a fresh context, read/grep/find/ls only, no extensions, skills, or nested agents. Missing light models fail rather than silently using the parent model. It is available even when other defaults are disabled; custom agent files cannot override it.
 

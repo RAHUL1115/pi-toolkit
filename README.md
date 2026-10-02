@@ -49,13 +49,13 @@ If migrating from standalone Goal or unified-subagent extensions, remove their o
 
 | Command | Purpose |
 |---|---|
-| `/ptk` | Configure workflow feature toggles |
+| `/ptk` | Configure workflow features and the `ptk/lite` model |
 | `/ptk-usage` | Rolling 1-day, 7-day, and 30-day usage tabs across Pi sessions |
 | `/tasks` | View, stop, and clear background tasks |
 | `/agents` | View running and completed agents |
 | `/agents-options` | Manage agent types, schedules, running jobs, and settings |
 | `/goal` | Manage a session goal; start with `/goal <objective>`, or use `status`, `pause`, `resume`, `edit`, and `clear` |
-| `/economy on\|off\|stats\|allow <path>` | Toggle the large-read guard, inspect savings, or permit one exact read |
+| `/economy on\|off\|stats\|allow <path>` | Toggle the default-on large-read guard, inspect savings, or permit one exact read |
 | `/skills-clear` | Clear the active dollar-skill set |
 
 `/agents` opens the activity list directly. Agent types, schedules, settings, and the workflow inspector are under `/agents-options`; they are not submenus of `/agents`.
@@ -289,11 +289,11 @@ With `new: true`, no old context is transferred into the new chat. The new sessi
 
 ## Automatic session titles
 
-When **Automatic session titles** is enabled, the toolkit refreshes the current session name after every completed turn without blocking the main conversation. With a model scope, it selects a lightweight physical model within that scope. Without a scope, it prefers the `ptk/lite` virtual model and falls back to the physical selector when the alias is unavailable. Selection matches whole tokens in model IDs/names in this order: Luna, Mini, Haiku, Flash, Lite, Small; virtual models are excluded. If no matching physical model is available, title generation is skipped or its optional request fails silently.
+When **Automatic session titles** is enabled, the toolkit refreshes the current session name after every completed turn without blocking the main conversation. With a model scope, it resolves the Lite preference within that scope: Auto selects a lightweight physical model, while a manual pin is used only if it is in scope. Without a scope, it prefers the `ptk/lite` virtual model and falls back to the physical selector when the alias is unavailable. Auto selection matches whole tokens in model IDs/names in this order: Luna, Mini, Haiku, Flash, Lite, Small, then chooses the highest numeric version within the first matching family; virtual models are excluded. If no matching physical model is available, title generation is skipped or its optional request fails silently.
 
 ### Reusable light-model alias
 
-`ptk/lite` is registered independently of the automatic-title toggle on Pi versions with virtual-model support. It routes to an available lightweight physical model; it is not a new provider, credential, fixed model pin, or promise of a particular price. Continuations and retries retain their previous/failed route rather than switching physical models mid-request. Background Bash deadline reviews prefer this alias when available. The reserved read-only `bulk-reader` also uses `ptk/lite`, including when child extensions are disabled. Other subagent types retain their own light-model and harness settings; this is not yet one unified model-policy setting.
+`ptk/lite` is registered independently of the automatic-title toggle on Pi versions with virtual-model support. Configure its target in **`/ptk` → Lite model**, using the searchable picker. **Auto** (the default) dynamically selects the newest available physical model within the preferred lightweight family. The settings row and Auto picker option display its resolved `provider/modelId` (or indicate that no model is available). Choosing an exact `provider/modelId` pins the alias to that physical model, even when newer versions appear. Select Auto again to restore dynamic selection. Virtual models—including `ptk/lite` itself—are excluded from targets. An unavailable manual pin produces an error instead of silently falling back; optional title generation and Bash reviews may skip their request. The alias is not a new provider, credential, or promise of a particular price. **Lite reasoning effort** in `/ptk` sets the default to Off, Low, or Medium (Low by default). Direct Toolkit metadata calls use this default; explicit interactive Pi or subagent thinking selections remain authoritative. Continuations and retries retain their previous/failed route and effort rather than switching mid-request. Background Bash deadline reviews prefer this alias when available. The reserved read-only `bulk-reader` also uses `ptk/lite`, including when child extensions are disabled. Other subagent types retain their own light-model and harness settings; this is not yet one unified model-policy setting.
 
 Generated titles survive resume and may continue changing with the conversation. A title set manually with `/name` is never overwritten. Model, authentication, timeout, or network failures do not affect the main turn.
 
@@ -340,6 +340,8 @@ Open `/ptk` in TUI mode:
 
 | Setting | Values | Default |
 |---|---|---|
+| Lite model | `Auto` (shows resolved model), exact physical `provider/modelId` | `Auto` |
+| Lite reasoning effort | `off`, `low`, `medium` | `low` |
 | Automatic session titles | `on`, `off` | `on` |
 | Compact tools | `on`, `off` | `on` |
 | Dollar skills | `on`, `off` | `on` |
@@ -358,6 +360,10 @@ Current configuration:
   "toolView": "list"
 }
 ```
+
+`liteReasoning` persists the default reasoning effort; existing configurations without this key use `low`.
+
+`liteModel` is absent in Auto mode. Manual selection persists an exact ID, for example `"liteModel": "openai/gpt-5.6-luna"`, and is not automatically upgraded. This setting controls `ptk/lite`; the separate `/agents` Light model setting still controls other subagent recommendations.
 
 `toolView` persists the last layout selected with `Alt+O`; it is not edited through `/ptk`. The legacy stored value `"compact"` is interpreted as `"one line"`.
 

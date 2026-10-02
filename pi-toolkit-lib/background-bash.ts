@@ -825,7 +825,7 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 	});
 	const bash = {
 		...foreground,
-		description: `${foreground.description} Commands start in the foreground and automatically move to the background after ${autoBackgroundMs / 1000} seconds. Set run_in_background=true to start there immediately, or press Alt+B while a foreground command is running. An optional title (maximum 80 characters) names the task in /tasks. Use /tasks to manage tasks, or bash_output and bash_stop with the returned task ID.`,
+		description: `${foreground.description} Commands start in the foreground and automatically move to the background after ${autoBackgroundMs / 1000} seconds. Set run_in_background=true to start there immediately, or press Ctrl+B while a foreground command is running. An optional title (maximum 80 characters) names the task in /tasks. Use /tasks to manage tasks, or bash_output and bash_stop with the returned task ID.`,
 		parameters: backgroundBashSchema,
 		async execute(toolCallId: string, params: { command: string; timeout?: number; run_in_background?: boolean; title?: string }, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionToolContext) {
 			resolvedTitle(params.title, params.command);
@@ -841,7 +841,7 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 		},
 	};
 
-	pi.registerShortcut("alt+b", {
+	pi.registerShortcut("ctrl+b", {
 		description: "Move the running Bash command to background tasks",
 		handler: (ctx) => {
 			const job = manager.backgroundForeground();

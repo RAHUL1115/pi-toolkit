@@ -7,7 +7,6 @@ export const DEFAULT_LITE_REASONING: LiteReasoningEffort = "low";
 export interface ToolkitSettings {
 	autoSessionTitles: boolean;
 	compactTools: boolean;
-	ctrlBackspace: boolean;
 	dollarSkills: boolean;
 	toolView: ToolView;
 	/** Absent means Auto. A provider/id value pins ptk/lite to that model. */
@@ -26,7 +25,6 @@ export function loadToolkitSettings(path: string): ToolkitSettings {
 	return {
 		autoSessionTitles: stored.autoSessionTitles !== false,
 		compactTools: stored.compactTools !== false,
-		ctrlBackspace: stored.ctrlBackspace !== false,
 		dollarSkills: stored.dollarSkills !== false,
 		toolView: stored.toolView === "one line" || stored.toolView === "compact"
 			? "one line"

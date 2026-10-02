@@ -137,7 +137,7 @@ Only running tasks and running/queued top-level agents appear. Agent rows are or
 
 #### Conversation navigation
 
-In the full-screen agent viewer, Up/Down scroll one line, Alt+Up/Down scroll one page, and Ctrl+Up/Down jump to the transcript start/end. Page Up/Page Down and Home/End remain aliases.
+In the full-screen agent viewer, Up/Down or k/j scroll one line, Alt+Up/Down or u/d scroll one page, and Ctrl+Up/Down or g/G jump to the transcript start/end. Mac hints show the modifier-free alternatives, which do not require Option/Meta terminal configuration. Page Up/Page Down and Home/End remain aliases. While the steering composer is open, letters remain normal text.
 
 ### Agent mentions
 

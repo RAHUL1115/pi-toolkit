@@ -209,6 +209,16 @@ describe("background bash", () => {
 		viewer.handleInput("\u001b[1;7B");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
 		viewer.handleInput("k");
+		expect(viewer.render(90).join("\n")).toContain("bash-1 · 4-8/9 · paused");
+		viewer.handleInput("j");
+		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
+		viewer.handleInput("u");
+		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
+		viewer.handleInput("d");
+		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
+		viewer.handleInput("g");
+		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
+		viewer.handleInput("G");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
 
 		controller.items.reverse();

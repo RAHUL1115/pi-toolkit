@@ -253,10 +253,10 @@ export class ConversationViewer implements Component {
     const viewportHeight = this.viewportHeight();
     const maxScroll = Math.max(0, totalLines - viewportHeight);
 
-    if (matchesKey(data, "ctrl+up") || matchesKey(data, "home") || matchesKey(data, "ctrl+home")) {
+    if (matchesKey(data, "g") || matchesKey(data, "ctrl+up") || matchesKey(data, "home") || matchesKey(data, "ctrl+home")) {
       this.scrollOffset = 0;
       this.autoScroll = false;
-    } else if (matchesKey(data, "ctrl+down") || matchesKey(data, "end") || matchesKey(data, "ctrl+end")) {
+    } else if (matchesKey(data, "shift+g") || matchesKey(data, "ctrl+down") || matchesKey(data, "end") || matchesKey(data, "ctrl+end")) {
       this.scrollOffset = maxScroll;
       this.autoScroll = true;
     } else if (this.keys.pageUp(data)) {
@@ -368,8 +368,10 @@ export class ConversationViewer implements Component {
       actions.push(th.fg("dim", `m ${MARKDOWN_MODE_LABELS[this.markdownMode()]}`));
       const actionText = actions.join(sep);
       const navigation = [
-        "↑↓ lines · Alt+↑↓ pages · Ctrl+↑↓ top/end · Esc close",
-        "↑↓/Alt↑↓/Ctrl↑↓ · Esc close",
+        process.platform === "darwin"
+          ? "↑↓/k/j lines · u/d pages · g/G top/end · Esc close"
+          : "↑↓ lines · Alt+↑↓ pages · Ctrl+↑↓ top/end · Esc close",
+        process.platform === "darwin" ? "k/j · u/d · g/G · Esc close" : "↑↓/Alt↑↓/Ctrl↑↓ · Esc close",
         "Esc close",
       ].find(hint => visibleWidth(actionText) + visibleWidth(hint) + 1 <= innerW) ?? "Esc close";
       const footerRight = th.fg("dim", navigation);

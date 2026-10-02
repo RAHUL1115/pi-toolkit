@@ -1043,12 +1043,13 @@ describe("ConversationViewer", () => {
       expect(viewer.render(W).join("\n")).not.toContain("Enter send"); // composer closed
     });
 
-    it("scroll keys are inert while composing (input owns them)", () => {
-      const { viewer } = makeViewer();
+    it("scroll keys remain normal text while composing (input owns them)", () => {
+      const { viewer, onSteer } = makeViewer();
       viewer.handleInput("\r"); // open composer
-      // 'j' would normally scroll, but here it types into the composer.
-      viewer.handleInput("j");
+      for (const key of "jkudgG") viewer.handleInput(key);
       expect(viewer.render(W).join("\n")).toContain("Enter send · Esc cancel");
+      viewer.handleInput("\r");
+      expect(onSteer).toHaveBeenCalledWith("jkudgG");
     });
 
     it("no steer affordance once the agent is no longer running", () => {

@@ -23,7 +23,6 @@ Toolkit loads through **one extension entrypoint**, `index.ts`. Goals and unifie
 | Context control | Adds an explicit-only `context_tool` tool for normal compaction or an opt-in blank chat |
 | Goals | Integrates upstream pi-goal for session-scoped objectives, settled-idle continuation, safety limits, completion, blocking, and external waiting |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
-| Windows editor | Makes `Ctrl+Backspace` delete the previous word in supported terminals |
 | Footer | Fixed model, folder, Git branch, context/input/output, estimated generation TPS, and session cost; Goal status appears first when present |
 | Usage | Rolling 1-day, 7-day, and 30-day usage tabs |
 
@@ -87,11 +86,12 @@ Use `/goal <objective>` to activate Goal mode. `/goal` opens its manager and set
 | Key | Behavior |
 |---|---|
 | `Ctrl+O` | Toggle grouped tool output between collapsed and fully expanded |
-| `Alt+O` | Cycle the collapsed layout: `one line` → `list` → `normal` |
+| `Ctrl+Q` | Cycle the collapsed layout: `one line` → `list` → `normal` (same on Mac and Windows) |
 | `Ctrl+B` | Detach a running foreground agent, or foreground Bash when no agent can be detached |
-| `Ctrl+Backspace` | Delete the previous word on supported Windows terminals when enabled |
 
-`Ctrl+O` uses Pi's configurable `app.tools.expand` action. `Alt+O` is currently fixed by the extension and remains distinguishable from `Ctrl+O` without terminal-specific configuration.
+`Ctrl+O` uses Pi's configurable `app.tools.expand` action. Toolkit uses **Ctrl+Q** for layout cycling on every platform, without Option/Meta or function-key configuration. The former Alt+O and F6 layout bindings are removed. With Compact tools enabled, Ctrl+Q takes precedence over Pi's default Windows/WSL follow-up shortcut; it cycles the layout instead of queuing a message.
+
+Toolkit viewer navigation also has modifier-free aliases on all platforms: **k/j** scroll lines, **u/d** scroll pages, and **g/G** jump to the top/end. In `/tasks`, Up/Down still selects tasks; k/j scrolls only the selected task's output. In the agent conversation viewer, these aliases apply only outside the steering composer, where letters remain normal text.
 
 ### Recommended Pi cursor keybindings
 
@@ -195,7 +195,7 @@ The toolkit extends Pi's existing `bash` tool with optional `run_in_background` 
 
 Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the below-editor activity surface exposes a Tasks tab; the fixed footer does not add background-task counts.
 
-Open `/tasks` for the live task list and selected task's five-line output window. Use Up/Down to select a task, Ctrl+Alt+Up/Down to scroll output one line, Alt+Up/Down to move one page, and Ctrl+Up/Down to jump to the top or resume following the tail. Page Up/Page Down, Home/End, and `g`/`G` remain aliases. Selection follows the task ID when the list changes. Destructive actions require the same key twice: `x x` stops a running task but retains its record and output, `c c` or Delete twice clears a selected finished task, and `C C` clears all finished tasks. Duplicate asynchronous actions are ignored while one is pending. The agent can also use:
+Open `/tasks` for the live task list and selected task's five-line output window. Use Up/Down to select a task, Ctrl+Alt+Up/Down to scroll output one line, Alt+Up/Down to move one page, and Ctrl+Up/Down to jump to the top or resume following the tail. Modifier-free `k`/`j` scroll output lines, `u`/`d` scroll pages, and `g`/`G` jump to top/tail; Mac hints show these keys. Page Up/Page Down and Home/End also remain aliases. Selection follows the task ID when the list changes. Destructive actions require the same key twice: `x x` stops a running task but retains its record and output, `c c` or Delete twice clears a selected finished task, and `C C` clears all finished tasks. Duplicate asynchronous actions are ignored while one is pending. The agent can also use:
 
 | Tool | Purpose |
 |---|---|
@@ -323,17 +323,6 @@ Repeat expansion is available only while the editor text and cursor remain uncha
 
 If there is a break before the repeated paste, Pi handles it as a separate paste marker.
 
-## Windows `Ctrl+Backspace`
-
-When enabled, the toolkit maps the `0x08` sequence emitted by supported Windows terminals to Pi's previous-word deletion action (`Ctrl+W`).
-
-It activates only on native Windows when either condition is detected:
-
-- VS Code terminal: `TERM_PROGRAM=vscode`
-- Windows Terminal: `WT_SESSION` is present
-
-It has no effect on other platforms or terminals.
-
 ## Workflow settings
 
 Open `/ptk` in TUI mode:
@@ -345,9 +334,8 @@ Open `/ptk` in TUI mode:
 | Automatic session titles | `on`, `off` | `on` |
 | Compact tools | `on`, `off` | `on` |
 | Dollar skills | `on`, `off` | `on` |
-| Ctrl+Backspace word delete | `on`, `off` | `on` |
 
-Changes are written immediately to `pi-toolkit.json`. Closing the settings screen after a change reloads Pi. The collapsed tool layout is intentionally absent from `/ptk`; use `Alt+O` to cycle it.
+Changes are written immediately to `pi-toolkit.json`. Closing the settings screen after a change reloads Pi. The collapsed tool layout is intentionally absent from `/ptk`; use Ctrl+Q to cycle it.
 
 Current configuration:
 
@@ -355,7 +343,6 @@ Current configuration:
 {
   "autoSessionTitles": true,
   "compactTools": true,
-  "ctrlBackspace": true,
   "dollarSkills": true,
   "toolView": "list"
 }
@@ -365,7 +352,7 @@ Current configuration:
 
 `liteModel` is absent in Auto mode. Manual selection persists an exact ID, for example `"liteModel": "openai/gpt-5.6-luna"`, and is not automatically upgraded. This setting controls `ptk/lite`; the separate `/agents` Light model setting still controls other subagent recommendations.
 
-`toolView` persists the last layout selected with `Alt+O`; it is not edited through `/ptk`. The legacy stored value `"compact"` is interpreted as `"one line"`.
+`toolView` persists the last layout selected with Ctrl+Q; it is not edited through `/ptk`. The legacy stored value `"compact"` is interpreted as `"one line"`.
 
 ## Fixed footer
 
@@ -414,7 +401,7 @@ The footer and usage modules have no persistent state. Obsolete `pi-toolkit.foot
 
 - Most workflow, editor, settings, and dashboard features require TUI mode.
 - Grouped rendering supports the seven listed built-ins plus `bash_output` and `bash_stop`; `bash_jobs` remains separate.
-- `Alt+O` is not currently configurable through Pi keybindings.
+- The Ctrl+Q layout shortcut is not currently configurable through Pi keybindings.
 - Repeat-paste expansion relies on Pi editor internals and may require adjustment after upstream editor changes.
 - Transcript markers are skipped on Pi versions without Markdown-transformer support.
 - The custom footer replaces information shown only by Pi's stock footer or other footer implementations.

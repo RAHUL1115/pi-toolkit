@@ -216,13 +216,13 @@ export class BackgroundTaskViewer {
 			this.select(tasks, this.selectedIndex - 1);
 		} else if (matchesKey(data, "down")) {
 			this.select(tasks, this.selectedIndex + 1);
-		} else if (matchesKey(data, "ctrl+alt+up")) {
+		} else if (matchesKey(data, "k") || matchesKey(data, "ctrl+alt+up")) {
 			this.scrollOutput(-1);
-		} else if (matchesKey(data, "ctrl+alt+down")) {
+		} else if (matchesKey(data, "j") || matchesKey(data, "ctrl+alt+down")) {
 			this.scrollOutput(1);
-		} else if (matchesKey(data, "alt+up") || matchesKey(data, "pageUp")) {
+		} else if (matchesKey(data, "u") || matchesKey(data, "alt+up") || matchesKey(data, "pageUp")) {
 			this.scrollOutput(-PREVIEW_LINES);
-		} else if (matchesKey(data, "alt+down") || matchesKey(data, "pageDown")) {
+		} else if (matchesKey(data, "d") || matchesKey(data, "alt+down") || matchesKey(data, "pageDown")) {
 			this.scrollOutput(PREVIEW_LINES);
 		} else if (matchesKey(data, "ctrl+up") || matchesKey(data, "home") || matchesKey(data, "g")) {
 			this.following = false;
@@ -288,7 +288,9 @@ export class BackgroundTaskViewer {
 			else for (const line of preview) lines.push(row(this.theme.fg("muted", line)));
 			lines.push(separator);
 		}
-		let help = "↑↓ tasks · Ctrl+Alt+↑↓ lines · Alt+↑↓ pages · Ctrl+↑↓ top/end · x stop · c/Del clear · C clear finished";
+		let help = process.platform === "darwin"
+			? "↑↓ tasks · k/j lines · u/d pages · g/G top/end · x stop · c/Del clear · C clear finished"
+			: "↑↓ tasks · Ctrl+Alt+↑↓ lines · Alt+↑↓ pages · Ctrl+↑↓ top/end · x stop · c/Del clear · C clear finished";
 		if (this.armed?.kind === "stop") help = "Press x again to stop this task (output will be retained)";
 		else if (this.armed?.kind === "clear") help = `Press ${this.armed.key === "delete" ? "Delete" : "c"} again to clear this finished task`;
 		else if (this.armed?.kind === "clear-all") help = "Press C again to clear all finished tasks";

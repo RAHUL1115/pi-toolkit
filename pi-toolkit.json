@@ -1,8 +1,7 @@
 {
   "autoSessionTitles": true,
   "compactTools": true,
-  "ctrlBackspace": true,
   "dollarSkills": true,
-  "toolView": "list",
+  "toolView": "one line",
   "liteReasoning": "low"
 }

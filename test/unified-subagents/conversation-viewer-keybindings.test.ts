@@ -95,6 +95,8 @@ describe("viewer-keys", () => {
       expect(keys.scrollDown("j")).toBe(true);
       expect(keys.pageUp(ALT_UP)).toBe(true);
       expect(keys.pageDown(ALT_DOWN)).toBe(true);
+      expect(keys.pageUp("u")).toBe(true);
+      expect(keys.pageDown("d")).toBe(true);
     }
   });
 
@@ -141,6 +143,16 @@ describe("ConversationViewer custom keybindings", () => {
     expect(scrollOffset(viewer)).toBe(bottom);
   });
 
+  it("pages with plain u/d without terminal modifier configuration", () => {
+    const viewer = createViewer();
+    const bottom = scrollOffset(viewer);
+    const page = (viewer as any).viewportHeight();
+    viewer.handleInput("u");
+    expect(scrollOffset(viewer)).toBe(bottom - page);
+    viewer.handleInput("d");
+    expect(scrollOffset(viewer)).toBe(bottom);
+  });
+
   it("keeps arrows and k/j working alongside custom bindings", () => {
     const viewer = createViewer(createEmacsKeybindings());
     const bottom = scrollOffset(viewer);
@@ -168,6 +180,7 @@ describe("ConversationViewer custom keybindings", () => {
     [CTRL_UP, CTRL_DOWN],
     [HOME, END],
     [CTRL_HOME, CTRL_END],
+    ["g", "G"],
   ])("jumps directly to the transcript top and bottom", (top, bottom) => {
     const viewer = createViewer();
     const bottomOffset = scrollOffset(viewer);

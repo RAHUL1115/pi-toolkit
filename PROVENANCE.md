@@ -13,7 +13,6 @@ This package is a local composition of user-owned workflow features and modified
 | `pi-toolkit-lib/goals.ts`, `goals-upstream.d.ts` | User-owned adapter around runtime dependency `@narumitw/pi-goal` 0.54.8 (MIT) | Calls the upstream generated registrar unchanged from the sole Toolkit entrypoint, skips child contexts, and preserves upstream settings/session formats. Goal source is not vendored into Toolkit. |
 | Compact grouped built-in rendering in `index.ts` | User-owned replacement for `pi-tool-display`; not a source copy | It serves a similar purpose, but a normalized token comparison found no shared 12-token code sequence with `pi-tool-display` 0.5.0. It uses Pi's exported built-in tool factories and a separate grouping design. |
 | `$skill` autocomplete/loading in `index.ts` | User-owned local workflow feature | No third-party source marker, package dependency, or matching source tree was found. |
-| Windows `Ctrl+Backspace` normalization in `index.ts` | User-owned feature consolidated from the former local `pi-ctrl-backspace` extension | The implementation translates VS Code/Windows Terminal `0x08` input to Pi's delete-word key and is independent of the observability code. |
 | Package entry point, workflow settings, README, and `pi-toolkit.json` | User-owned integration layer | These compose the feature areas into `pi-toolkit@0.1.0`. |
 
 ## Third-party source retained in this package

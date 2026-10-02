@@ -12,7 +12,6 @@ cpSync(join(sourceRoot, "pi-toolkit-lib"), join(extensionRoot, "pi-toolkit-lib")
 writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 	autoSessionTitles: true,
 	compactTools: true,
-	ctrlBackspace: true,
 	dollarSkills: true,
 }, null, 2));
 
@@ -291,8 +290,9 @@ editor.handleInput("\x1b[D");
 assert.equal(widgets.has("ptk-paste-hint"), false);
 editor.setText("");
 
-const cycleCollapsedKey = "\x1bo";
+const cycleCollapsedKey = "\x11"; // Ctrl+Q: identical on Mac and Windows.
 editor.handleInput(cycleCollapsedKey);
+assert.equal(editor.getText(), "");
 assert.equal(expanded, false);
 assert.equal(notifications.at(-1), "Collapsed tool view: normal");
 assert.equal(leaderBlocks().length, 1);
@@ -334,6 +334,12 @@ assert.doesNotMatch(rendered(), /read line 01/);
 editor.handleInput(cycleCollapsedKey);
 assert.equal(notifications.at(-1), "Collapsed tool view: normal");
 assert.match(rendered(), /read line 01/);
+
+// Removed bindings must no longer cycle layouts.
+const beforeRemovedShortcuts = notifications.length;
+for (const key of ["\x1bo", "\x1b[17~"]) editor.handleInput(key);
+assert.equal(notifications.length, beforeRemovedShortcuts);
+assert.equal(editor.getText(), "");
 
 await ends[0]({ message: { role: "user", content: "diff color boundary" } });
 const editArgs = { path: "colored.ts", edits: [{ oldText: "old", newText: "new" }] };
@@ -499,7 +505,6 @@ writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 	autoSessionTitles: false,
 	compactTools: true,
 	toolView: "compact",
-	ctrlBackspace: true,
 	dollarSkills: true,
 }, null, 2));
 const { extensions: oneLineExtensions, errors: oneLineErrors } = await loadExtensions([extensionPath], extensionRoot);

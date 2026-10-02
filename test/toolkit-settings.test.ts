@@ -32,6 +32,16 @@ describe("Toolkit Lite settings", () => {
 		expect(loadToolkitSettings(path)).toMatchObject({ compactTools: false, toolView: "one line", liteModel: undefined });
 	});
 
+	it("ignores and removes the retired Ctrl+Backspace setting on save", () => {
+		const path = settingsPath();
+		writeFileSync(path, JSON.stringify({ ctrlBackspace: true, compactTools: false }));
+		const settings = loadToolkitSettings(path);
+		expect(settings).not.toHaveProperty("ctrlBackspace");
+		expect(settings.compactTools).toBe(false);
+		saveToolkitSettings(path, settings);
+		expect(JSON.parse(readFileSync(path, "utf8"))).not.toHaveProperty("ctrlBackspace");
+	});
+
 	it("persists a manual pin across reloads and clears it when Auto is selected", () => {
 		const path = settingsPath();
 		const settings = loadToolkitSettings(path);

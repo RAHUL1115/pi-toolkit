@@ -43,6 +43,8 @@ import { registerUnifiedSubagents } from "./pi-toolkit-lib/unified-subagents/ind
 const SETTINGS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "pi-toolkit.json");
 const READ_PREVIEW_EDGE_LINES = 10;
 const TOOL_PREVIEW_EDGE_LINES = 2;
+const TOOL_VIEW_KEY = "ctrl+q";
+const TOOL_VIEW_KEY_LABEL = "Ctrl+Q";
 
 type ToolDetail = "collapsed" | "expanded";
 type Args = Record<string, unknown>;
@@ -186,8 +188,6 @@ class ActivityText implements Component {
 	}
 }
 
-const CTRL_BACKSPACE = "\x08";
-const CTRL_W = "\x17";
 const TOOLKIT_EDITOR_PADDING_X = 1;
 type EditorArgs = ConstructorParameters<typeof CustomEditor>;
 type PasteInternals = {
@@ -229,7 +229,6 @@ class ToolkitEditor extends CustomEditor {
 		tui: EditorArgs[0],
 		theme: EditorArgs[1],
 		private readonly toolkitKeybindings: EditorArgs[2],
-		private readonly normalizeCtrlBackspace: boolean,
 		private readonly toggleTools?: () => void,
 		private readonly cycleCollapsedTools?: () => void,
 		private readonly onRepeatablePasteChange?: (visible: boolean) => void,
@@ -298,7 +297,7 @@ class ToolkitEditor extends CustomEditor {
 		const internals = this as unknown as PasteInternals;
 		const isPasteInput = internals.isInPaste || data.includes("\x1b[200~");
 		if (!isPasteInput) this.setRepeatablePaste(undefined);
-		if (this.cycleCollapsedTools && matchesKey(data, "alt+o")) {
+		if (this.cycleCollapsedTools && matchesKey(data, TOOL_VIEW_KEY)) {
 			this.cycleCollapsedTools();
 			return;
 		}
@@ -306,30 +305,23 @@ class ToolkitEditor extends CustomEditor {
 			this.toggleTools();
 			return;
 		}
-		super.handleInput(this.normalizeCtrlBackspace && data === CTRL_BACKSPACE ? CTRL_W : data);
+		super.handleInput(data);
 	}
 }
 
-function supportsCtrlBackspaceNormalization(): boolean {
-	return process.platform === "win32"
-		&& (process.env.TERM_PROGRAM === "vscode" || Boolean(process.env.WT_SESSION));
-}
-
-function registerWorkflowEditor(pi: ExtensionAPI, settings: Settings, controls?: ToolControls): void {
+function registerWorkflowEditor(pi: ExtensionAPI, controls?: ToolControls): void {
 	let previousEditor: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
 	let installed = false;
 
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 		ensureActivityThemePatch();
-		const normalizeCtrlBackspace = settings.ctrlBackspace && supportsCtrlBackspaceNormalization();
 		previousEditor = ctx.ui.getEditorComponent();
 		ctx.ui.setEditorComponent((tui, theme, keybindings) =>
 			new ToolkitEditor(
 				tui,
 				theme,
 				keybindings,
-				normalizeCtrlBackspace,
 				controls ? () => controls.toggleExpanded(ctx) : undefined,
 				controls ? () => controls.cycleCollapsed(ctx) : undefined,
 				(visible) => {
@@ -380,7 +372,7 @@ function registerCompactTools(
 		for (const call of group.calls) counts.set(call.tool, (counts.get(call.tool) ?? 0) + 1);
 		const countText = [...counts].map(([name, count]) => `${count} ${name}`).join(" · ");
 		const running = group.calls.some((call) => call.partial);
-		const viewHint = detail === "collapsed" ? ` · ${rawKeyHint("alt+o", "view")}` : "";
+		const viewHint = detail === "collapsed" ? ` · ${rawKeyHint(TOOL_VIEW_KEY, "view")}` : "";
 		const hint = theme.fg("dim", ` · ${keyHint("app.tools.expand", detail === "collapsed" ? "expand" : "collapse")}${viewHint}`);
 		const status = (call: GroupCall): string => call.partial
 			? theme.fg("warning", " …")
@@ -834,7 +826,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	const backgroundBash = registerBackgroundBash(pi, undefined, undefined, litePreference);
 	const toolControls = settings.compactTools ? registerCompactTools(pi, settings, backgroundBash) : undefined;
 	if (!settings.compactTools) pi.registerTool(backgroundBash);
-	registerWorkflowEditor(pi, settings, toolControls);
+	registerWorkflowEditor(pi, toolControls);
 	registerFinalResponseTracking(pi);
 	registerLiteVirtualModel(pi, litePreference, () => settings.liteReasoning);
 	if (settings.dollarSkills) registerSkillLoader(pi);
@@ -869,7 +861,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 				{
 					id: "compactTools",
 					label: "Compact tools",
-					description: "Groups consecutive read, bash, edit, write, grep, find, and ls calls. Use Ctrl+O to expand and Alt+O to change the collapsed layout.",
+					description: `Groups consecutive read, bash, edit, write, grep, find, and ls calls. Use Ctrl+O to expand and ${TOOL_VIEW_KEY_LABEL} to change the collapsed layout.`,
 					currentValue: settings.compactTools ? "on" : "off",
 					values: ["on", "off"],
 				},
@@ -878,13 +870,6 @@ export default function piToolkit(pi: ExtensionAPI): void {
 					label: "Dollar skills",
 					description: "Lets a line such as $ponytail $tdd activate those skills and start a turn, with fuzzy $ autocomplete.",
 					currentValue: settings.dollarSkills ? "on" : "off",
-					values: ["on", "off"],
-				},
-				{
-					id: "ctrlBackspace",
-					label: "Ctrl+Backspace word delete",
-					description: "Makes Ctrl+Backspace delete the previous word in supported Windows terminals; it has no effect elsewhere.",
-					currentValue: settings.ctrlBackspace ? "on" : "off",
 					values: ["on", "off"],
 				},
 			];
@@ -900,7 +885,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 							settings.liteModel = value === "Auto" ? undefined : value;
 							list.updateValue(id, liteModelSetting(ctx.modelRegistry.getAvailable(), settings.liteModel).currentValue);
 						} else if (id === "liteReasoning") settings.liteReasoning = value as LiteReasoningEffort;
-						else settings[id as "autoSessionTitles" | "compactTools" | "ctrlBackspace" | "dollarSkills"] = value === "on";
+						else settings[id as "autoSessionTitles" | "compactTools" | "dollarSkills"] = value === "on";
 						saveSettings(settings);
 						changed = true;
 					},

@@ -10,12 +10,34 @@ function isToolkitLiteVirtualModel(model: Model<any>): boolean {
 	return model.provider === LITE_MODEL_PROVIDER && model.id === LITE_MODEL_ID;
 }
 
+function modelVersion(model: Model<any>): number[] {
+	// Compare components, not decimals: 5.10 is newer than 5.9. Providers use
+	// both dots (GPT/Gemini) and hyphens (Claude) to separate version numbers.
+	const version = model.id.match(/\d+(?:[.-]\d+)*/)?.[0]
+		?? model.name?.match(/\d+(?:[.-]\d+)*/)?.[0];
+	return version?.split(/[.-]/).map(Number) ?? [];
+}
+
+function compareModelVersions(left: Model<any>, right: Model<any>): number {
+	const a = modelVersion(left);
+	const b = modelVersion(right);
+	for (let i = 0; i < Math.max(a.length, b.length); i++) {
+		const difference = (a[i] ?? 0) - (b[i] ?? 0);
+		if (difference !== 0) return difference;
+	}
+	return 0;
+}
+
 export function selectLiteModel(models: readonly Model<any>[]): Model<any> | undefined {
 	const physical = models.filter((model) => !isToolkitLiteVirtualModel(model) && model.api !== "pi-virtual");
 	for (const hint of LITE_MODEL_HINTS) {
 		const token = new RegExp(`(^|[^a-z0-9])${hint}([^a-z0-9]|$)`, "i");
-		const match = physical.find((model) => token.test(`${model.id} ${model.name ?? ""}`));
-		if (match) return match;
+		let best: Model<any> | undefined;
+		for (const model of physical) {
+			if (!token.test(`${model.id} ${model.name ?? ""}`)) continue;
+			if (!best || compareModelVersions(model, best) > 0) best = model;
+		}
+		if (best) return best;
 	}
 	return undefined;
 }

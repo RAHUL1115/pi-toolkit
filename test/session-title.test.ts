@@ -56,6 +56,36 @@ describe("automatic session titles", () => {
 		expect(selectLiteModel([model("gpt-5.4-mini"), model("gpt-5.6-luna")])?.id).toBe("gpt-5.6-luna");
 	});
 
+	it.each([
+		["gpt-5.6-luna", "gpt-6-luna"],
+		["gpt-5.9-mini", "gpt-5.10-mini"],
+		["claude-3-5-haiku-20241022", "claude-haiku-4-5"],
+		["gemini-2.5-flash", "gemini-3-flash"],
+		["model-1-lite", "model-2-lite"],
+		["model-1-small", "model-2-small"],
+	])("prefers the highest numeric version: %s → %s", (older, newer) => {
+		for (const ids of [[older, newer], [newer, older]]) {
+			expect(selectLiteModel(ids.map(model))?.id).toBe(newer);
+		}
+	});
+
+	it("preserves family priority over version and ignores virtual models", () => {
+		expect(selectLiteModel([
+			model("gpt-10-mini"),
+			model("gpt-5.6-luna"),
+			{ ...model("gpt-99-luna"), api: "pi-virtual" },
+		])?.id).toBe("gpt-5.6-luna");
+	});
+
+	it("uses display-name versions when the ID has no version and keeps ties stable", () => {
+		const older = { ...model("old-luna"), name: "GPT 5.6 Luna" };
+		const newer = { ...model("new-luna"), name: "GPT 6 Luna" };
+		expect(selectLiteModel([older, newer])).toBe(newer);
+		const first = model("gpt-6-luna");
+		expect(selectLiteModel([first, { ...first, provider: "other" }])).toBe(first);
+		expect(selectLiteModel([model("luna"), newer])).toBe(newer);
+	});
+
 	it("registers a lite virtual model that routes to a physical lite model", async () => {
 		const registerVirtualModel = vi.fn();
 		registerLiteVirtualModel({ registerVirtualModel } as any);
@@ -65,8 +95,8 @@ describe("automatic session titles", () => {
 		expect(definition.id).toBe(LITE_MODEL_ID);
 		expect(await Promise.resolve(definition.route(
 			{ reason: "user", thinkingLevel: "low" },
-			{ modelRegistry: { getAvailable: () => [model("gpt-5.4-mini"), model("gpt-5.6-luna")] } },
-		))).toMatchObject({ model: { id: "gpt-5.6-luna" }, thinkingLevel: "low" });
+			{ modelRegistry: { getAvailable: () => [model("gpt-5.4-mini"), model("gpt-5.6-luna"), model("gpt-6-luna")] } },
+		))).toMatchObject({ model: { id: "gpt-6-luna" }, thinkingLevel: "low" });
 	});
 
 	it("builds and cleans bounded title text", () => {
@@ -109,7 +139,10 @@ describe("automatic session titles", () => {
 
 	it("respects scoped models", async () => {
 		const { ctx, complete, handlers } = harness();
-		ctx.scopedModels = [{ model: model("claude-haiku-4-5") }];
+		ctx.scopedModels = [
+			{ model: model("claude-3-5-haiku") },
+			{ model: model("claude-haiku-4-5") },
+		];
 		complete.mockResolvedValue({ content: [{ type: "text", text: "Scoped title" }] });
 
 		await handlers.get("session_start")?.({}, ctx);

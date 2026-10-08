@@ -106,6 +106,30 @@ afterEach(() => {
 });
 
 describe("custom agent color runtime surfaces", () => {
+  it.each([
+    { customStyling: false, outputPad: 0, expectedPad: 0 },
+    { customStyling: false, outputPad: 1, expectedPad: 1 },
+    { customStyling: true, outputPad: 1, expectedPad: 0 },
+  ])("uses completion padding $expectedPad with custom styling $customStyling", async ({ customStyling, outputPad, expectedPad }) => {
+    const { pi, handlers } = makePi();
+    subagentsExtension(pi, undefined, customStyling);
+    try {
+      const registrations = vi.mocked(pi.registerMessageRenderer).mock.calls;
+      const renderer = registrations.find(([type]) => type === "subagent-notification")?.[1];
+      if (!renderer) throw new Error("Notification renderer was not registered");
+      const component = renderer({ details: {
+        status: "completed", description: "Padding test", turnCount: 1,
+        toolUses: 2, totalTokens: 100, durationMs: 10,
+        resultPreview: "Result preview", outputFile: "/tmp/transcript.output",
+      } } as any, { expanded: false, outputPad } as any, theme as any)!;
+      const lines = component.render(160);
+      expect(lines[0]).toMatch(new RegExp(`^${" ".repeat(expectedPad)}<success>`));
+      expect(lines.find((line) => line.includes("transcript:"))).toContain(`${" ".repeat(expectedPad + 2)}<muted>transcript:`);
+    } finally {
+      await handlers.get("session_shutdown")?.({}, { hasUI: false, ui: {} });
+    }
+  });
+
   it("renders the registered Agent tool call header with the display name and color", async () => {
     const { pi, tools, handlers } = makePi();
     subagentsExtension(pi);

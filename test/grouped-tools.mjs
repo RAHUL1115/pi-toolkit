@@ -611,5 +611,21 @@ const plainExpanded = plainLeader.render(120).map((line) => line.replace(ansiPat
 assert(plainExpanded.includes(`${nativePrefix}plain output`));
 assert(!plainExpanded.some((line) => /[•│└├]/.test(line)));
 
+// Self-rendered tools must use the live padding Pi supplies in the render
+// context, even when it differs from the global setting at registration.
+const paddingCommand = "npm uninstall -g --prefix /home/admin/.local @earendil-works/pi-coding-agent";
+for (const outputPad of [0, 1, 0]) {
+	const id = `padding-bash-${outputPad}`;
+	const args = { command: paddingCommand };
+	const paddingContext = { ...context(id, args), state: {}, outputPad, expanded: true, invalidate() {} };
+	const paddingBash = plainExtension.tools.get("bash").definition;
+	const shell = paddingBash.renderCall(args, theme, paddingContext);
+	paddingBash.renderResult({ content: [{ type: "text", text: "bash output" }], details: {} },
+		{ expanded: true, isPartial: false }, theme, paddingContext);
+	const lines = shell.render(180).map((line) => line.replace(ansiPattern, "").trimEnd());
+	assert(lines.some((line) => line.startsWith(`${" ".repeat(outputPad)}bash ${paddingCommand}`)));
+	assert(lines.includes(`${" ".repeat(outputPad)}bash output`));
+}
+
 cleanup();
 console.log("grouped tool renderer verified");

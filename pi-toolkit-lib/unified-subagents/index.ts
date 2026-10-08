@@ -333,7 +333,7 @@ export function workflowSettingSnapshot(pinned: boolean, enabled: boolean): bool
   return pinned ? enabled : undefined;
 }
 
-export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTaskController): void {
+export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTaskController, customStyling = true): void {
   // Child AgentSessions load normal extensions. Re-entering this extension there
   // would create another manager and leak handlers. Nested orchestration is
   // injected as scoped custom tools by the existing manager instead.
@@ -343,7 +343,7 @@ export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTas
   // ---- Register custom notification renderer ----
   pi.registerMessageRenderer<NotificationDetails>(
     "subagent-notification",
-    (message, { expanded }, theme) => {
+    (message, { expanded, outputPad }, theme) => {
       const d = message.details;
       if (!d) return undefined;
 
@@ -401,7 +401,7 @@ export function registerUnifiedSubagents(pi: ExtensionAPI, tasks?: BackgroundTas
           rendered.unshift(theme.fg("dim", `${all.length} agents · ${formatTokens(tokens)} · ${total}`));
         }
       }
-      return new Text(rendered.join("\n"), 0, 0);
+      return new Text(rendered.join("\n"), customStyling ? 0 : outputPad, 0);
     }
   );
 

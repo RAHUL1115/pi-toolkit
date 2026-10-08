@@ -362,7 +362,7 @@ function registerCompactTools(
 	backgroundBash: ReturnType<typeof registerBackgroundBash>,
 ): ToolControls {
 	const cwd = process.cwd();
-	const outputPad = loadOutputPad();
+	let outputPad = loadOutputPad();
 	const supported = new Set(["read", "bash", "bash_output", "bash_stop", "edit", "write", "grep", "find", "ls"]);
 	const calls = new Map<string, GroupCall>();
 	const groups = new Map<string, ToolGroup>();
@@ -619,6 +619,9 @@ function registerCompactTools(
 			...tool,
 			renderShell: "self",
 			renderCall(args, theme, context) {
+				// Pi 1.1 supplies outputPad; older SDK types do not declare it.
+				const nativePadding = (context as typeof context & { outputPad?: number }).outputPad;
+				if (!settings.customStyling && nativePadding !== undefined) outputPad = nativePadding;
 				const callArgs = args as Args;
 				detail = context.expanded ? "expanded" : "collapsed";
 				let call = calls.get(context.toolCallId);
@@ -640,6 +643,8 @@ function registerCompactTools(
 				return shell;
 			},
 			renderResult(result, { isPartial }, theme, context) {
+				const nativePadding = (context as typeof context & { outputPad?: number }).outputPad;
+				if (!settings.customStyling && nativePadding !== undefined) outputPad = nativePadding;
 				detail = context.expanded ? "expanded" : "collapsed";
 				const call = context.state.call ?? calls.get(context.toolCallId);
 				if (call) {
@@ -852,7 +857,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	registerLiteVirtualModel(pi, litePreference, () => settings.liteReasoning);
 	if (settings.dollarSkills) registerSkillLoader(pi);
 	if (settings.autoSessionTitles) registerAutomaticSessionTitles(pi, litePreference);
-	registerUnifiedSubagents(pi, backgroundBash.taskController);
+	registerUnifiedSubagents(pi, backgroundBash.taskController, settings.customStyling);
 	registerGoals(pi);
 
 	pi.registerCommand("ptk", {

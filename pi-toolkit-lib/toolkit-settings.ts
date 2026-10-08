@@ -8,6 +8,7 @@ export interface ToolkitSettings {
 	autoSessionTitles: boolean;
 	compactTools: boolean;
 	dollarSkills: boolean;
+	customStyling: boolean;
 	toolView: ToolView;
 	/** Absent means Auto. A provider/id value pins ptk/lite to that model. */
 	liteModel?: string;
@@ -26,6 +27,7 @@ export function loadToolkitSettings(path: string): ToolkitSettings {
 		autoSessionTitles: stored.autoSessionTitles !== false,
 		compactTools: stored.compactTools !== false,
 		dollarSkills: stored.dollarSkills !== false,
+		customStyling: stored.customStyling !== false,
 		toolView: stored.toolView === "one line" || stored.toolView === "compact"
 			? "one line"
 			: stored.toolView === "normal" ? "normal" : "list",

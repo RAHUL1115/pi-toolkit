@@ -233,8 +233,12 @@ class ToolkitEditor extends CustomEditor {
 		private readonly toggleTools?: () => void,
 		private readonly cycleCollapsedTools?: () => void,
 		private readonly onRepeatablePasteChange?: (visible: boolean) => void,
+		private readonly customStyling = true,
 	) {
-		super(tui, theme, toolkitKeybindings, { paddingX: TOOLKIT_EDITOR_PADDING_X });
+		super(tui, theme, toolkitKeybindings, {
+			paddingX: customStyling ? TOOLKIT_EDITOR_PADDING_X : undefined,
+			embedWorkingStatus: true,
+		});
 		const candidate = this as unknown as Partial<PasteInternals>;
 		if (
 			typeof candidate.handlePaste !== "function"
@@ -290,8 +294,8 @@ class ToolkitEditor extends CustomEditor {
 		super.setText(text);
 	}
 
-	override setPaddingX(_padding: number): void {
-		super.setPaddingX(TOOLKIT_EDITOR_PADDING_X);
+	override setPaddingX(padding: number): void {
+		super.setPaddingX(this.customStyling ? TOOLKIT_EDITOR_PADDING_X : padding);
 	}
 
 	override handleInput(data: string): void {
@@ -310,7 +314,7 @@ class ToolkitEditor extends CustomEditor {
 	}
 }
 
-function registerWorkflowEditor(pi: ExtensionAPI, controls?: ToolControls): void {
+function registerWorkflowEditor(pi: ExtensionAPI, settings: Settings, controls?: ToolControls): void {
 	let previousEditor: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
 	let installed = false;
 	let restoreWordDeleteAlias: (() => void) | undefined;
@@ -321,7 +325,7 @@ function registerWorkflowEditor(pi: ExtensionAPI, controls?: ToolControls): void
 		restoreWordDeleteAlias = ctx.ui.onTerminalInput
 			? maintainWordDeleteAlias(getKeybindings(), (handler) => ctx.ui.onTerminalInput(handler))
 			: installWordDeleteAlias(getKeybindings());
-		ensureActivityThemePatch();
+		ensureActivityThemePatch(settings.customStyling);
 		previousEditor = ctx.ui.getEditorComponent();
 		ctx.ui.setEditorComponent((tui, theme, keybindings) =>
 			new ToolkitEditor(
@@ -337,6 +341,7 @@ function registerWorkflowEditor(pi: ExtensionAPI, controls?: ToolControls): void
 						visible ? { placement: "belowEditor" } : undefined,
 					);
 				},
+				settings.customStyling,
 			));
 		installed = true;
 	});
@@ -390,8 +395,8 @@ function registerCompactTools(
 		const renderActivity = (call: GroupCall, index: number, width: number): string => {
 			const callHint = index === group.calls.length - 1 ? hint : "";
 			const heading = `${theme.fg("toolTitle", call.tool)} ${theme.fg("accent", subject(call.tool, call.args, false))}${status(call)}${callHint}`;
-			const headingLines = wrapTextWithAnsi(heading, Math.max(1, width - 4));
-			const lines = headingLines.map((line, lineIndex) => `${lineIndex === 0 ? "• " : "  │ "}${line}`);
+			const headingLines = wrapTextWithAnsi(heading, Math.max(1, width - (settings.customStyling ? 4 : 0)));
+			const lines = headingLines.map((line, lineIndex) => `${settings.customStyling ? (lineIndex === 0 ? "• " : "  │ ") : ""}${line}`);
 			if (running || call.partial) return lines.join("\n");
 			const body = expandedBody(call.tool, call.args, call.output, call.details);
 			if (!body) return lines.join("\n");
@@ -400,9 +405,9 @@ function registerCompactTools(
 				: previewBody(body, call.tool === "read" ? READ_PREVIEW_EDGE_LINES : TOOL_PREVIEW_EDGE_LINES);
 			let firstOutputLine = true;
 			for (const bodyLine of renderedBody.split("\n")) {
-				const wrapped = wrapTextWithAnsi(colorBodyLine(call.tool, bodyLine, theme), Math.max(1, width - 4));
+				const wrapped = wrapTextWithAnsi(colorBodyLine(call.tool, bodyLine, theme), Math.max(1, width - (settings.customStyling ? 4 : 0)));
 				for (const line of wrapped) {
-					lines.push(`${firstOutputLine ? "  └ " : "    "}${line}`);
+					lines.push(`${settings.customStyling ? (firstOutputLine ? "  └ " : "    ") : ""}${line}`);
 					firstOutputLine = false;
 				}
 			}
@@ -411,14 +416,14 @@ function registerCompactTools(
 
 		if (detail === "collapsed" && settings.toolView !== "normal") {
 			group.leader.addChild(new ActivityText((width) => {
-				const lines = [`${theme.fg("toolTitle", theme.bold(`• tools ${countText}`))}${hint}`];
+				const lines = [`${theme.fg("toolTitle", theme.bold(`${settings.customStyling ? "• " : ""}tools ${countText}`))}${hint}`];
 				if (settings.toolView === "list") {
 					for (const [index, call] of group.calls.entries()) {
 						const branch = index === group.calls.length - 1 ? "└" : "├";
 						const heading = `${theme.fg("toolTitle", call.tool)} ${theme.fg("accent", subject(call.tool, call.args))}${status(call)}`;
-						const wrapped = wrapTextWithAnsi(heading, Math.max(1, width - 4));
-						lines.push(`  ${branch} ${wrapped[0] ?? ""}`);
-						for (const line of wrapped.slice(1)) lines.push(`  │ ${line}`);
+						const wrapped = wrapTextWithAnsi(heading, Math.max(1, width - (settings.customStyling ? 4 : 0)));
+						lines.push(`${settings.customStyling ? `  ${branch} ` : ""}${wrapped[0] ?? ""}`);
+						for (const line of wrapped.slice(1)) lines.push(`${settings.customStyling ? "  │ " : ""}${line}`);
 					}
 				}
 				return lines.join("\n");
@@ -680,7 +685,7 @@ function registerCompactTools(
 
 const PI_THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 const TOOLKIT_THEME_PATCH_KEY = Symbol.for("pi-toolkit:activity-theme-patch");
-type ActivityThemePatch = { pendingTranscriptMarker?: string; bypassThinkingItalic: boolean };
+type ActivityThemePatch = { enabled: boolean; pendingTranscriptMarker?: string; bypassThinkingItalic: boolean };
 type PatchableTheme = {
 	fg?: (color: string, text: string) => string;
 	italic?: (text: string) => string;
@@ -693,16 +698,24 @@ function isStatusRender(): boolean {
 	return new Error().stack?.split("\n").some((line) => /\bshowStatus \(/.test(line)) ?? false;
 }
 
-function ensureActivityThemePatch(): ActivityThemePatch | undefined {
+function ensureActivityThemePatch(enabled?: boolean): ActivityThemePatch | undefined {
 	const activeTheme = (globalThis as unknown as Record<symbol, unknown>)[PI_THEME_KEY] as PatchableTheme | undefined;
 	if (!activeTheme || typeof activeTheme.fg !== "function") return undefined;
 	const existing = activeTheme[TOOLKIT_THEME_PATCH_KEY] as ActivityThemePatch | undefined;
-	if (existing) return existing;
+	if (existing) {
+		if (enabled !== undefined) {
+			existing.enabled = enabled;
+			existing.pendingTranscriptMarker = undefined;
+			existing.bypassThinkingItalic = false;
+		}
+		return existing;
+	}
 
-	const state: ActivityThemePatch = { bypassThinkingItalic: false };
+	const state: ActivityThemePatch = { enabled: enabled ?? true, bypassThinkingItalic: false };
 	const originalFg = activeTheme.fg.bind(activeTheme);
 	const originalItalic = activeTheme.italic?.bind(activeTheme);
 	activeTheme.fg = (color, text) => {
+		if (!state.enabled) return originalFg(color, text);
 		if (color === "mdListBullet" && text === "- " && state.pendingTranscriptMarker) {
 			const selected = state.pendingTranscriptMarker;
 			state.pendingTranscriptMarker = undefined;
@@ -721,7 +734,7 @@ function ensureActivityThemePatch(): ActivityThemePatch | undefined {
 	};
 	if (originalItalic) {
 		activeTheme.italic = (text) => {
-			if (!state.bypassThinkingItalic) return originalItalic(text);
+			if (!state.enabled || !state.bypassThinkingItalic) return originalItalic(text);
 			state.bypassThinkingItalic = false;
 			return text;
 		};
@@ -806,13 +819,14 @@ function registerFinalResponseTracking(pi: ExtensionAPI): void {
 	pi.on("message_end", (event) => trackVisibleActivity(event.message));
 }
 
-function registerTranscriptMarkers(pi: ExtensionAPI): void {
+function registerTranscriptMarkers(pi: ExtensionAPI, settings: Settings): void {
 	const register = (pi as unknown as {
 		registerMarkdownTransformer?: (
 			transformer: (markdown: string, context: { messageType: string; availableWidth: number }) => string,
 		) => void;
 	}).registerMarkdownTransformer;
 	register?.((markdown, context) => {
+		if (!settings.customStyling) return markdown;
 		if (context.messageType === "user") return markMarkdown(markdown, "›");
 		if (context.messageType === "assistant-thinking") return markMarkdown(compactThinkingSummaries(markdown), "◦");
 		if (context.messageType === "assistant") {
@@ -827,13 +841,13 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	registerAskUserQuestion(pi);
 	registerCompactContext(pi);
 	registerUsage(pi);
-	registerTranscriptMarkers(pi);
 	const settings = loadToolkitSettings(SETTINGS_PATH);
+	registerTranscriptMarkers(pi, settings);
 	const litePreference = () => settings.liteModel;
 	const backgroundBash = registerBackgroundBash(pi, undefined, undefined, litePreference);
 	const toolControls = settings.compactTools ? registerCompactTools(pi, settings, backgroundBash) : undefined;
 	if (!settings.compactTools) pi.registerTool(backgroundBash);
-	registerWorkflowEditor(pi, toolControls);
+	registerWorkflowEditor(pi, settings, toolControls);
 	registerFinalResponseTracking(pi);
 	registerLiteVirtualModel(pi, litePreference, () => settings.liteReasoning);
 	if (settings.dollarSkills) registerSkillLoader(pi);
@@ -873,6 +887,13 @@ export default function piToolkit(pi: ExtensionAPI): void {
 					values: ["on", "off"],
 				},
 				{
+					id: "customStyling",
+					label: "Custom input/output styling",
+					description: "Adds input padding and output prefixes, gutters, and separators. Turn off to use Pi's native padding and unmarked output; editor shortcuts and tool grouping stay enabled.",
+					currentValue: settings.customStyling ? "on" : "off",
+					values: ["on", "off"],
+				},
+				{
 					id: "dollarSkills",
 					label: "Dollar skills",
 					description: "Lets a line such as $ponytail $tdd activate those skills and start a turn, with fuzzy $ autocomplete.",
@@ -892,7 +913,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 							settings.liteModel = value === "Auto" ? undefined : value;
 							list.updateValue(id, liteModelSetting(ctx.modelRegistry.getAvailable(), settings.liteModel).currentValue);
 						} else if (id === "liteReasoning") settings.liteReasoning = value as LiteReasoningEffort;
-						else settings[id as "autoSessionTitles" | "compactTools" | "dollarSkills"] = value === "on";
+						else settings[id as "autoSessionTitles" | "compactTools" | "dollarSkills" | "customStyling"] = value === "on";
 						saveSettings(settings);
 						changed = true;
 					},

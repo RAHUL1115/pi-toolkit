@@ -17,6 +17,7 @@ writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 
 const codingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
 const { loadExtensions } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
+const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
 const { getMarkdownTheme, initTheme, theme: globalTheme } = await import(new URL("./modes/interactive/theme/theme.js", codingAgentEntry));
 const { ToolExecutionComponent } = await import(new URL("./modes/interactive/components/tool-execution.js", codingAgentEntry));
 const { Markdown, getKeybindings } = await import("@earendil-works/pi-tui");
@@ -281,6 +282,7 @@ editor.setText("hello world");
 editor.handleInput("\x7f");
 assert.equal(editor.getText(), "hello worl");
 editor.setText("");
+assert.equal(editor.embedWorkingStatus, true);
 assert.equal(editor.getPaddingX(), 1);
 editor.setPaddingX(0);
 assert.equal(editor.getPaddingX(), 1);
@@ -563,6 +565,51 @@ for (const [name, id] of [["bash_output", "one-line-output"], ["bash_stop", "one
 const oneLineRendered = oneLineLeader.render(120).join("\n");
 assert.match(oneLineRendered, /• tools 1 read · 1 bash · 1 bash_output · 1 bash_stop/);
 assert.doesNotMatch(oneLineRendered, /one-line\.txt|echo one-line/);
+
+// Reload with styling disabled: native padding takes over, with no toolkit
+// transcript/tool gutters or persistent theme-patch markers.
+writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
+	autoSessionTitles: false, dollarSkills: false, customStyling: false,
+}));
+const plainLoaded = await loadExtensions([extensionPath], extensionRoot);
+assert.deepEqual(plainLoaded.errors, []);
+const plainExtension = plainLoaded.extensions[0];
+for (const messageType of ["user", "assistant", "assistant-thinking"]) {
+	const original = "**Original**\n\nNested text";
+	assert.equal(plainExtension.markdownTransformer(original, { messageType, availableWidth: 42 }), original);
+}
+const plainStarts = plainExtension.handlers.get("session_start");
+await plainStarts[0]({}, { ui, sessionManager });
+await plainStarts[1]({}, { mode: "tui", ui });
+const plainEditor = editorFactory({ requestRender() {} }, {}, { matches: () => false });
+assert.equal(plainEditor.getPaddingX(), 0);
+for (const padding of [1, 3, 0]) {
+	plainEditor.setPaddingX(padding);
+	assert.equal(plainEditor.getPaddingX(), padding, "disabled styling respects Pi's native editor padding");
+}
+assert.equal(plainEditor.embedWorkingStatus, true);
+assert.equal(globalTheme.fg("error", "Operation aborted").replace(ansiPattern, ""), "Operation aborted");
+assert.equal(statusHarness.showStatus("Reloaded resources"), "Reloaded resources");
+const plainUpdate = plainExtension.handlers.get("message_update").at(-1);
+await plainUpdate({ message: { role: "assistant", content: [toolCall("plain-read", "read", { path: "plain.txt" })] } });
+const plainRead = plainExtension.tools.get("read").definition;
+const plainContext = { ...context("plain-read", { path: "plain.txt" }), state: {}, invalidate() {} };
+const plainLeader = plainRead.renderCall({ path: "plain.txt" }, theme, plainContext);
+let nativeOutputPad = 1;
+try {
+	nativeOutputPad = JSON.parse(readFileSync(join(getAgentDir(), "settings.json"), "utf8")).outputPad === 0 ? 0 : 1;
+} catch { /* Pi's default output padding */ }
+const nativePrefix = " ".repeat(nativeOutputPad);
+const plainLines = plainLeader.render(120).map((line) => line.replace(ansiPattern, "").trimEnd());
+assert(plainLines.some((line) => line.startsWith(`${nativePrefix}read plain.txt`)));
+assert(plainLines.some((line) => line.startsWith(`${nativePrefix}tools 1 read`)));
+assert(!plainLines.some((line) => /[•│└├]/.test(line)));
+plainContext.expanded = true;
+plainRead.renderResult({ content: [{ type: "text", text: "plain output" }], details: {} },
+	{ expanded: true, isPartial: false }, theme, plainContext);
+const plainExpanded = plainLeader.render(120).map((line) => line.replace(ansiPattern, "").trimEnd());
+assert(plainExpanded.includes(`${nativePrefix}plain output`));
+assert(!plainExpanded.some((line) => /[•│└├]/.test(line)));
 
 cleanup();
 console.log("grouped tool renderer verified");

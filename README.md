@@ -251,7 +251,9 @@ When the installed Pi version supports Markdown transformers, the toolkit adds d
 
 Markers do not modify stored messages or model context. User and assistant markers use the theme accent color; the thinking marker uses the same dim color as thinking text. User, assistant, and thinking blocks reserve a two-column gutter: the first line contains the marker and a space, while wrapped lines and nested Markdown continue beneath the content with two leading spaces. If visible thinking, narration, or tool activity occurs after an input, the toolkit places a thin, dim, full-width horizontal line immediately before the completed response; direct responses have no line. Abort and response-error statuses use `× ` in the same gutter; informational Pi status lines reserve the gutter with two spaces and no marker. Consecutive thinking summaries remain in one activity block without blank lines; toolkit rendering removes bold and italic emphasis and uses dim text.
 
-The toolkit editor owns a fixed one-column input padding instead of inheriting Pi's `editorPaddingX` value. This toolkit padding is not configurable and does not modify Pi's `editorPaddingX` or `outputPad` settings.
+In `/ptk`, **Custom input/output styling** controls these decorations together (on by default). Turn it off to remove toolkit transcript prefixes, gutters, final-response separators, and status prefixes, and let Pi's native `editorPaddingX` and `outputPad` settings control padding. Thinking text also returns to Pi's normal styling. Tool grouping, editor shortcuts, repeatable paste, and the border-embedded working indicator stay enabled. Changes are saved and reload automatically when you close settings.
+
+With styling on, the toolkit editor uses one-column input padding instead of inheriting Pi's `editorPaddingX` value. This toggle does not modify Pi's `editorPaddingX` or `outputPad` settings.
 
 ## Dollar skills
 

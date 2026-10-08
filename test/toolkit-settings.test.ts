@@ -25,6 +25,18 @@ function settingsPath(): string {
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe("Toolkit Lite settings", () => {
+	it("defaults custom styling on and persists either toggle value", () => {
+		const path = settingsPath();
+		expect(loadToolkitSettings(path).customStyling).toBe(true);
+		writeFileSync(path, JSON.stringify({ compactTools: false }));
+		const settings = loadToolkitSettings(path);
+		expect(settings.customStyling).toBe(true);
+		for (const enabled of [false, true]) {
+			settings.customStyling = enabled;
+			saveToolkitSettings(path, settings);
+			expect(loadToolkitSettings(path).customStyling).toBe(enabled);
+		}
+	});
 	it("defaults to Auto for new and existing settings", () => {
 		const path = settingsPath();
 		expect(loadToolkitSettings(path)).toMatchObject({ liteModel: undefined, liteReasoning: "low" });

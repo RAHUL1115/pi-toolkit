@@ -14,7 +14,7 @@ This is the current local integration guide. Start with the [Toolkit README](../
 | Goals | `pi-toolkit-lib/goals.ts` | Thin adapter calling pinned `@narumitw/pi-goal` 0.54.8 |
 | Questions and context handoff | `ask-user-question/`, `compact-context.ts` | Internal registrars |
 | Light-model alias and automatic titles | `session-title.ts` | Toolkit registers `ptk/lite`; titles are optional |
-| Footer and usage | `footer.ts`, `usage*.ts` | Toolkit UI and read-only accounting |
+| Usage dashboard | `usage*.ts` | Toolkit UI and read-only accounting; Pi owns the footer |
 
 `goals-upstream.d.ts` describes the upstream generated TypeScript entrypoint for the compiler; it does not replace Goal's runtime. Goal commands, limits, settings, and persistence retain upstream behavior.
 
@@ -58,9 +58,9 @@ Paths use Pi's configured agent directory, normally `~/.pi/agent`.
 | Agent types | Project `.pi/agents/*.md`, global `agents/*.md` | Custom definitions |
 | Titles/skills | `pi-toolkit:auto-title`, `pi-toolkit:skill-loader` session entries | Generated-title provenance and branch-local skill activation |
 | Background Bash | In-memory records and temporary logs | Current runtime; orderly reload/shutdown stops tasks |
-| Usage/footer | Native session ledger scan and live UI snapshots | No additional persistent accounting store |
+| Usage | Native session ledger scan and live UI snapshots | No additional persistent accounting store |
 
-`/ptk` does not merge or edit the Goal/subagent stores. Goal menu saves apply immediately; manual Goal settings edits apply at session start or `/reload`. The footer displays upstream's `goal` status key first, not an arbitrary aggregation of every extension's status.
+`/ptk` does not merge or edit the Goal/subagent stores. Goal menu saves apply immediately; manual Goal settings edits apply at session start or `/reload`. Toolkit leaves Pi's built-in footer unchanged; Goal publishes its `goal` status through Pi's native extension status API.
 
 ## Migration checklist
 

@@ -1,6 +1,6 @@
 # pi-toolkit
 
-A local Pi extension that combines session Goals, unified subagents and workflows, background Bash, compact tool rendering, skill shortcuts, editor enhancements, and a single-line footer and rolling usage dashboard.
+A local Pi extension that combines session Goals, unified subagents and workflows, background Bash, compact tool rendering, skill shortcuts, editor enhancements, and a rolling usage dashboard.
 
 Toolkit loads through **one extension entrypoint**, `index.ts`. Goals and unified subagents are internal registrations, not separately installed extensions. The current development and regression-test baseline is **Pi 0.99.1**.
 
@@ -40,7 +40,7 @@ Pi references this local checkout. After changing the source or `pi-toolkit.json
 /reload
 ```
 
-`/ptk` reloads Pi automatically after workflow settings change. The footer has no settings or toggles.
+`/ptk` reloads Pi automatically after workflow settings change. Toolkit leaves Pi's built-in footer unchanged.
 
 If migrating from standalone Goal or unified-subagent extensions, remove their old package/extension registrations before reloading. Keep their settings and session data. See the [migration checklist](docs/integration.md#migration-checklist); installing Toolkit does not automatically rewrite Pi's package list.
 
@@ -79,7 +79,7 @@ Toolkit registers the pinned [@narumitw/pi-goal](https://github.com/narumiruna/p
 
 Use `/goal <objective>` to activate Goal mode. `/goal` opens its manager and settings; `/goal --tokens 100k <objective>` adds an optional cumulative assistant-token budget. Default safety limits remain 25 automatic responses and 3 no-progress responses. Goals can trigger repeated paid model turns; token budgets and response limits are not dollar-cost caps.
 
-`goal_complete`, `goal_blocked`, and `goal_wait` retain upstream evidence, active-goal, stale-id, and safety checks. Merely exposing these tools does not activate Goal mode. Child sessions created by Toolkit's subagent runner or mention clone do not register Goal commands, tools, or continuation handlers. Goal status is included in Toolkit's existing single-line footer.
+`goal_complete`, `goal_blocked`, and `goal_wait` retain upstream evidence, active-goal, stale-id, and safety checks. Merely exposing these tools does not activate Goal mode. Child sessions created by Toolkit's subagent runner or mention clone do not register Goal commands, tools, or continuation handlers. Goal status is published through Pi's native extension status API.
 
 ## Keybindings
 
@@ -201,7 +201,7 @@ The toolkit extends Pi's existing `bash` tool with optional `run_in_background` 
 }
 ```
 
-Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the below-editor activity surface exposes a Tasks tab; the fixed footer does not add background-task counts.
+Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the below-editor activity surface exposes a Tasks tab; Toolkit does not customize Pi's footer.
 
 Open `/tasks` for the live task list and selected task's five-line output window. Use Up/Down to select a task, Ctrl+Alt+Up/Down to scroll output one line, Alt+Up/Down to move one page, and Ctrl+Up/Down to jump to the top or resume following the tail. Modifier-free `k`/`j` scroll output lines, `u`/`d` scroll pages, and `g`/`G` jump to top/tail; Mac hints show these keys. Page Up/Page Down and Home/End also remain aliases. Selection follows the task ID when the list changes. Destructive actions require the same key twice: `x x` stops a running task but retains its record and output, `c c` or Delete twice clears a selected finished task, and `C C` clears all finished tasks. Duplicate asynchronous actions are ignored while one is pending. The agent can also use:
 
@@ -362,19 +362,9 @@ Current configuration:
 
 `toolView` persists the last layout selected with Ctrl+Q; it is not edited through `/ptk`. The legacy stored value `"compact"` is interpreted as `"one line"`.
 
-## Fixed footer
+## Footer
 
-One line replaces Pi's footer in TUI mode (illustrative values):
-
-```text
-  🤖 gpt-6-astra  📁 rahul  ⎇ main  ◔ 36.8% [↑12.4k ↓2.1k]  ⚡ 87.4t/s  $ 0.127
-```
-
-Groups have two spaces between them and two spaces of outer padding, without distributing spare width. Folder is the runtime cwd basename; branch is omitted when unavailable. Context/input/output form one group. Context uses one decimal and warning color at 85%. Only the TPS suffix `t/s` is dim; its number uses normal text color. Narrow terminals clip the right end safely, preserving outer padding (reduced only below four columns). When Goal supplies a status, `🎯 <status>` appears before the model group and disappears when that status clears. Narrow terminals can clip later groups. Other extensions' arbitrary status entries are not automatically displayed. Native branch subscriptions are cleaned up on replacement/shutdown; the footer itself has no timers, shell polling, settings, or toggles. Goal owns its separate lifecycle/deadline timers.
-
-Input (`↑`) is total session input: uncached input + cache reads + cache writes. Output (`↓`) includes reported reasoning, not added again. Both use the existing authoritative usage snapshot across all branches, compacted messages, summary usage and finalized nested tool usage; `/ptk-usage` accounting is unchanged. Cost is the same Pi/provider session estimate, rounded to three decimals, with `+?` retained for missing cost; it is not a subscription bill.
-
-TPS is a **client-observed generation estimate**, not precise live decoding speed. It always appears, starting at `0.0t/s`, then divides final assistant `usage.output` by monotonic elapsed time from the first nonempty text, thinking, or tool-call delta to assistant message completion. This interval excludes initial request latency but includes streaming/network/extension overhead; buffered or hidden reasoning can distort it. No chunks, bytes, or characters are counted as tokens. A new assistant generation keeps the last valid measurement while streaming; missing/invalid output usage, no observed delta, or a nonpositive interval also retain it. A valid measured zero replaces the prior value. Model changes, tree navigation, session switches, and reloads reset TPS to `0.0t/s`; historical speed is not reconstructed. The completed result excludes subsequent tool waits and child-agent output.
+Toolkit uses Pi's built-in footer without replacing it. Goal continues publishing its status through Pi's native extension status API. Background-task activity remains in the below-editor activity surface, and `/ptk-usage` remains available for rolling usage details.
 
 ## Rolling usage tabs
 
@@ -403,7 +393,7 @@ Costs are recorded Pi/provider estimates, not subscription bills. Missing costs 
 
 These stores remain separate. `/ptk` does not edit Goal or subagent settings. See [settings ownership](docs/integration.md#settings-and-state-ownership) for the integration boundaries.
 
-The footer and usage modules have no persistent state. Obsolete `pi-toolkit.footer` settings, `~/.pi/agent/observability/` files, and existing `obs-turn` entries are left untouched and ignored; there is no migration or deletion of user data. The old `/ptk-obs` and `/ptk-footer-settings` commands are removed.
+The usage module has no persistent state. Obsolete `pi-toolkit.footer` settings, `~/.pi/agent/observability/` files, and existing `obs-turn` entries are left untouched and ignored; there is no migration or deletion of user data. The old `/ptk-obs` and `/ptk-footer-settings` commands are removed.
 
 ## Compatibility and limitations
 
@@ -412,7 +402,6 @@ The footer and usage modules have no persistent state. Obsolete `pi-toolkit.foot
 - The Ctrl+Q layout shortcut is not currently configurable through Pi keybindings.
 - Repeat-paste expansion relies on Pi editor internals and may require adjustment after upstream editor changes.
 - Transcript markers are skipped on Pi versions without Markdown-transformer support.
-- The custom footer replaces information shown only by Pi's stock footer or other footer implementations.
 - Background tasks are session-scoped; a force-killed Pi process can bypass orderly process and temporary-log cleanup.
 
 ## Development
@@ -430,18 +419,18 @@ npm test
 `npm test` runs the real grouped-renderer check followed by the full Vitest suite. For a focused iteration, run from the repository directory:
 
 ```bash
-npm exec -- vitest run test/goals.test.ts test/usage-footer.test.ts
+npm exec -- vitest run test/goals.test.ts test/usage.test.ts
 ```
 
 Additional scripts: `npm run test:e2e` targets `test/unified-subagents/e2e` (not every print-mode test); `npm run test:coverage` collects coverage; `npm run bench` and `npm run bench:ab` run performance measurements. Live-provider checks require their own explicit opt-in.
 
 Pi SDK dependencies are externalized so tests and recursively loaded child sessions share native provider registries without repeatedly transforming the SDK. Keep file serialization: nested sessions and Windows worktree cleanup can become unstable under indiscriminate parallelism. A measured full offline run passed **129 files / 2,425 tests**, with **21 skipped**, in about **450 seconds**, versus about **904 seconds** with blanket SDK inlining. These are machine-specific observations, not time guarantees; use at least a ten-minute watchdog for the full suite. Smaller selections are preferable during iteration.
 
-The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, bounded background-task execution and retention, confirmed stop/clear behavior, scroll/follow refresh, titles, automatic and `Ctrl+B` detachment, completion notifications, cleanup, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component. Goal tests additionally cover ordinary turns remaining inactive, stale/inactive completion rejection, completion persistence/clearing, child-session exclusion, and footer status updates.
+The tests cover grouped rendering, collapsed layouts, expansion, previews, diff colors, session reconstruction, bounded background-task execution and retention, confirmed stop/clear behavior, scroll/follow refresh, titles, automatic and `Ctrl+B` detachment, completion notifications, cleanup, repeat-paste behavior, command registration, persistent/lazy skill loading, fuzzy skill completion, automatic session titles, compact-context handoff, and the interactive question component. Goal tests additionally cover ordinary turns remaining inactive, stale/inactive completion rejection, completion persistence/clearing, child-session exclusion, and native status updates.
 
 ## Provenance
 
-The workflow, grouped-tool, skill, editor, integration, and replacement footer/usage modules are locally owned. The removed observability implementation was derived from `pi-observability` 1.3.2; its historical attribution and MIT notice are retained. The ask-user-question subtree is derived from `pi-askuserquestion` 1.0.0 under the MIT License. Unified subagents is a selectively ported internal source tree. Goals uses the pinned MIT-licensed `@narumitw/pi-goal` 0.54.8 runtime dependency rather than a vendored copy.
+The workflow, grouped-tool, skill, editor, integration, and usage modules are locally owned. The removed observability implementation was derived from `pi-observability` 1.3.2; its historical attribution and MIT notice are retained. The ask-user-question subtree is derived from `pi-askuserquestion` 1.0.0 under the MIT License. Unified subagents is a selectively ported internal source tree. Goals uses the pinned MIT-licensed `@narumitw/pi-goal` 0.54.8 runtime dependency rather than a vendored copy.
 
 See:
 

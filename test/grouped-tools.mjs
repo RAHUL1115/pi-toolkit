@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -105,11 +105,11 @@ const statusHarness = {
 	showStatus(message) { return globalTheme.fg("dim", message).replace(ansiPattern, ""); },
 };
 assert.equal(statusHarness.showStatus("Reloaded resources"), " Reloaded resources");
+assert(!readFileSync(join(extensionRoot, "index.ts"), "utf8").includes("registerFooter"), "Toolkit leaves Pi's built-in footer in place");
 const starts = extension.handlers.get("session_start");
 // Select the grouped renderer's handler; the legacy TPS handler is gone.
 const update = extension.handlers.get("message_update").at(-1);
-// The fixed footer registers its TPS observer before the renderer handlers.
-const ends = extension.handlers.get("message_end").slice(1);
+const ends = extension.handlers.get("message_end");
 await ends[1]({ message: {
 	role: "assistant",
 	content: [{ type: "text", text: "working" }, { type: "toolCall", id: "call-1", name: "read", arguments: {} }],
@@ -144,7 +144,7 @@ await ends[1]({ message: {
 	stopReason: "stop",
 } });
 assert(renderMarkdown("thoughtful answer", "assistant", 42)[0].startsWith("─"));
-await starts[3]({}, { sessionManager: { buildSessionContext: () => ({ messages: [
+await starts[2]({}, { sessionManager: { buildSessionContext: () => ({ messages: [
 	{ role: "user", content: [{ type: "text", text: "restored question" }] },
 	{ role: "assistant", content: [{ type: "thinking", thinking: "work" }, { type: "toolCall", id: "call-2", name: "read", arguments: {} }], stopReason: "toolUse" },
 	{ role: "toolResult", toolCallId: "call-2", toolName: "read", content: [{ type: "text", text: "result" }] },
@@ -171,8 +171,8 @@ const ui = {
 	setEditorComponent: (factory) => { editorFactory = factory; },
 };
 const sessionManager = { buildSessionContext: () => ({ messages: [] }) };
-await starts[1]({}, { ui, sessionManager });
-await starts[2]({}, { mode: "tui", ui });
+await starts[0]({}, { ui, sessionManager });
+await starts[1]({}, { mode: "tui", ui });
 
 const toolCall = (id, name, args) => ({ type: "toolCall", id, name, arguments: args });
 const output = (prefix, count = 30) => Array.from(
@@ -486,7 +486,7 @@ const replayMessages = [
 	{ role: "assistant", content: [{ type: "thinking", thinking: "" }, toolCall("replay-read", "read", { path: "a.ts" })] },
 	{ role: "toolResult", toolCallId: "replay-read", toolName: "read", content: [{ type: "text", text: "line" }], details: {}, isError: false },
 ];
-await starts[1]({}, {
+await starts[0]({}, {
 	ui,
 	sessionManager: { buildSessionContext: () => ({ messages: replayMessages }) },
 });

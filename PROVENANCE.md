@@ -6,7 +6,7 @@ This package is a local composition of user-owned workflow features and modified
 
 | Pi Toolkit area | Provenance | Evidence |
 |---|---|---|
-| `pi-toolkit-lib/footer.ts`, `usage.ts`, `usage-snapshot.ts`, `usage-history.ts` | User-owned replacement | Independent single-line footer and rolling-usage tab registrars, shared ledger formatting, and a bounded read-only native session scanner. |
+| `pi-toolkit-lib/usage.ts`, `usage-snapshot.ts`, `usage-history.ts` | User-owned replacement | Rolling-usage tab registrar, shared ledger formatting, and a bounded read-only native session scanner. The former custom `footer.ts` was removed; Pi owns the footer. |
 | Removed `observability.ts` and `lib/{footer-engine,storage,settings}/**` | Historical derivative of `pi-observability` 1.3.2 | Former source matched npm 1.3.2 with local branding, footer controls, Git icon, and settings changes. Replaced rather than updated; historical notice retained. |
 | `pi-toolkit-lib/ask-user-question/**` | Copied/modified from `pi-askuserquestion` 1.0.0 | The component, schema, validation, and registration code were merged at upstream commit `e58609c9e9c8c4e8a0348c96eaad38dd7e6f0578`; registration now rejects every non-TUI mode explicitly. |
 | `pi-toolkit-lib/unified-subagents/**` | Copied/modified from local `pi-unified-subagents` snapshot `4b581fa99dc13f1a4295f2935cdf0205a0ab9443` | The complete source was moved under Pi Toolkit and its default factory became a private registrar invoked by the sole package entrypoint. Tests and documentation are retained under `test/unified-subagents/**` and `docs/unified-subagents/**`. |
@@ -63,7 +63,7 @@ The source is retained as one internal module tree. Its tool names (`Agent`, `ge
 - Runtime entry: `@narumitw/pi-goal/dist/index.ts`.
 - Dependency version is pinned in `package.json` and resolved in `package-lock.json`.
 
-Unlike the copied subagent/question trees, Goal is consumed as a dependency. The local adapter only controls registration scope; the ambient declaration supplies compiler types. Toolkit's footer reads the upstream `goal` status key. Standalone registrations must be removed to avoid duplicate runtime instances; `pi-goal.json` and `goal-state` session entries remain compatible. See the [current integration map](docs/integration.md).
+Unlike the copied subagent/question trees, Goal is consumed as a dependency. The local adapter only controls registration scope; the ambient declaration supplies compiler types. Goal publishes the upstream `goal` status key through Pi's native extension status API; Toolkit does not replace Pi's footer. Standalone registrations must be removed to avoid duplicate runtime instances; `pi-goal.json` and `goal-state` session entries remain compatible. See the [current integration map](docs/integration.md).
 
 ## Historical influence not copied into this package
 

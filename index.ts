@@ -32,7 +32,6 @@ import {
 import registerAskUserQuestion from "./pi-toolkit-lib/ask-user-question/register.js";
 import { registerBackgroundBash } from "./pi-toolkit-lib/background-bash.js";
 import registerCompactContext from "./pi-toolkit-lib/compact-context.js";
-import registerFooter from "./pi-toolkit-lib/footer.js";
 import { installWordDeleteAlias, maintainWordDeleteAlias } from "./pi-toolkit-lib/editor-keybindings.js";
 import registerGoals from "./pi-toolkit-lib/goals.js";
 import registerUsage from "./pi-toolkit-lib/usage.js";
@@ -827,7 +826,6 @@ function registerTranscriptMarkers(pi: ExtensionAPI): void {
 export default function piToolkit(pi: ExtensionAPI): void {
 	registerAskUserQuestion(pi);
 	registerCompactContext(pi);
-	registerFooter(pi);
 	registerUsage(pi);
 	registerTranscriptMarkers(pi);
 	const settings = loadToolkitSettings(SETTINGS_PATH);

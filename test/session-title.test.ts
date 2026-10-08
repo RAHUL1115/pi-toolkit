@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import registerAutomaticSessionTitles, {
 	LITE_MODEL_ID,
 	LITE_MODEL_PROVIDER,
@@ -29,6 +31,7 @@ function harness() {
 			find: vi.fn(() => undefined),
 			getAvailable: vi.fn(() => [model("gpt-5.4-mini"), model("gpt-5.6-luna")]),
 			complete,
+			streamSimple: vi.fn((...args: unknown[]) => ({ result: () => complete(...args) })),
 		},
 		sessionManager: {
 			getSessionId: vi.fn(() => "session-1"),
@@ -189,6 +192,39 @@ describe("automatic session titles", () => {
 		expect(complete).toHaveBeenCalledTimes(2);
 		expect(complete.mock.calls[0]?.[0].id).toBe("gpt-5.6-luna");
 		expect(pi.appendEntry).toHaveBeenCalledTimes(2);
+	});
+
+	it("routes virtual Lite through Pi's real Simple runtime before saving a title", async () => {
+		const { pi, ctx, handlers, getName } = harness();
+		const registerVirtualModel = vi.fn();
+		registerLiteVirtualModel({ registerVirtualModel } as any);
+		const definition = registerVirtualModel.mock.calls[0]![0];
+		const virtual = { ...model("lite"), provider: "ptk", api: "pi-virtual" };
+		const physical = { ...model("gpt-6-luna"), type: "chat", maxTokens: 4096 };
+		const providerStream = vi.fn(() => {
+			const stream = createAssistantMessageEventStream();
+			stream.end({ content: [{ type: "text", text: "Routed session title" }], stopReason: "stop" } as any);
+			return stream;
+		});
+		// Keep Pi's actual stream/streamSimple implementations. Only replace the
+		// authenticated provider boundary so this regression needs no network.
+		const runtime = Object.create(ModelRuntime.prototype);
+		runtime.getModel = () => virtual;
+		runtime.getAvailableSnapshot = () => [physical];
+		runtime.resolveModel = vi.fn((requested: any, messages: any, options: any) =>
+			definition.route({ model: requested, messages, ...options }, { modelRegistry: ctx.modelRegistry }));
+		runtime.prepareRequest = vi.fn(async (requested: any, options: any) => {
+			if (requested.api === "pi-virtual") throw new Error("Virtual model ptk/lite must be routed before streaming");
+			return { model: requested, options, provider: { stream: providerStream, streamSimple: providerStream } };
+		});
+		ctx.modelRegistry = new ModelRegistry(runtime);
+		await handlers.get("session_start")?.({}, ctx);
+		handlers.get("agent_end")?.(turn("repair session titles"), ctx);
+		await flushTitle();
+		expect(getName()).toBe("Routed session title");
+		expect(runtime.resolveModel).toHaveBeenCalledWith(virtual, expect.any(Array), expect.objectContaining({ reason: "direct" }));
+		expect(providerStream).toHaveBeenCalledWith(physical, expect.any(Object), expect.objectContaining({ reasoning: "low", maxTokens: 32 }));
+		expect(pi.appendEntry).toHaveBeenCalledWith("pi-toolkit:auto-title", { name: "Routed session title" });
 	});
 
 	it("prefers the registered lite virtual model for titles", async () => {

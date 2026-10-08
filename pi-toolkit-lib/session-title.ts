@@ -170,7 +170,9 @@ export default function registerAutomaticSessionTitles(pi: ExtensionAPI, prefere
 		const requestSessionId = ctx.sessionManager.getSessionId();
 
 		void (async () => {
-			const response = await ctx.modelRegistry.complete(
+			// Simple streaming resolves virtual models such as ptk/lite before
+			// dispatching to the authenticated physical provider.
+			const response = await ctx.modelRegistry.streamSimple(
 				model,
 				{
 					systemPrompt: "Generate a concise 3-7 word title for this coding session. Describe the overall topic, not the latest status. Return only the title with no quotes or punctuation.",
@@ -187,7 +189,7 @@ export default function registerAutomaticSessionTitles(pi: ExtensionAPI, prefere
 					maxRetries: 0,
 					cacheRetention: "none",
 				},
-			);
+			).result();
 			const title = cleanSessionTitle(contentText(response.content));
 			if (!title || signal.aborted || requestGeneration !== generation || requestSessionId !== sessionId) return;
 

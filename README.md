@@ -93,6 +93,14 @@ Use `/goal <objective>` to activate Goal mode. `/goal` opens its manager and set
 
 Toolkit viewer navigation also has modifier-free aliases on all platforms: **k/j** scroll lines, **u/d** scroll pages, and **g/G** jump to the top/end. In `/tasks`, Up/Down still selects tasks; k/j scrolls only the selected task's output. In the agent conversation viewer, these aliases apply only outside the steering composer, where letters remain normal text.
 
+### Delete the previous word
+
+Toolkit adds **Ctrl+Backspace** to Pi's existing `tui.editor.deleteWordBackward` action while a TUI session is active. **Ctrl+W** and **Alt+Backspace** remain available by default. The alias works in the main editor and standard Pi `Input`/`Editor` fields, including extension composers that use those components. It uses Pi's normal word boundaries, yank and undo behavior; no keybindings file is rewritten. Explicitly disabling the action or assigning Ctrl+Backspace to another action in your user keybindings takes precedence.
+
+On macOS, Control+Delete is Control+Backspace on a keyboard whose backspace key is labeled Delete. The terminal must report the Control modifier separately (Kitty/CSI-u or xterm modifyOtherKeys); if it sends the same bytes for plain Backspace and Ctrl+Backspace, Toolkit cannot safely distinguish them. Configure the terminal to send `ESC [ 127 ; 5 u`, or map the chord to Ctrl+W. Pi also recognizes Windows Terminal's legacy Ctrl+Backspace byte (`0x08`) locally; over SSH it is treated as plain Backspace to avoid ambiguity. Plain Backspace remains character deletion. This is a Pi shortcut, not an OS-wide remapping for unrelated apps, and it does not override non-editing contexts such as the session picker's existing Ctrl+Backspace action.
+
+Run `/reload` to activate this change in an already running Pi session.
+
 ### Recommended Pi cursor keybindings
 
 Pi defaults `Ctrl+B` to cursor-left, which conflicts with Toolkit's agent and Bash backgrounding shortcut. To reserve `Ctrl+B` for Toolkit and keep single-character cursor movement consistent in both directions, merge these entries into `~/.pi/agent/keybindings.json`:
@@ -104,7 +112,7 @@ Pi defaults `Ctrl+B` to cursor-left, which conflicts with Toolkit's agent and Ba
 }
 ```
 
-This makes single-character movement arrow-only, removing Pi's `Ctrl+B` and `Ctrl+F` cursor bindings. Run `/reload` after changing the file. Toolkit does not automatically modify your Pi keybindings.
+This makes single-character movement arrow-only, removing Pi's `Ctrl+B` and `Ctrl+F` cursor bindings. Run `/reload` after changing the file. Toolkit does not automatically rewrite your Pi keybindings file; the word-delete alias above is session-only.
 
 ## Grouped tool rendering
 

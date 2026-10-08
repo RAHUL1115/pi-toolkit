@@ -19,7 +19,7 @@ const codingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
 const { loadExtensions } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
 const { getMarkdownTheme, initTheme, theme: globalTheme } = await import(new URL("./modes/interactive/theme/theme.js", codingAgentEntry));
 const { ToolExecutionComponent } = await import(new URL("./modes/interactive/components/tool-execution.js", codingAgentEntry));
-const { Markdown } = await import("@earendil-works/pi-tui");
+const { Markdown, getKeybindings } = await import("@earendil-works/pi-tui");
 const extensionPath = join(extensionRoot, "index.ts");
 
 initTheme("dark");
@@ -154,6 +154,7 @@ const restoredAnswer = renderMarkdown("restored answer", "assistant", 42);
 assert(restoredAnswer[0].startsWith("─"));
 assert.equal(restoredAnswer.at(-1), "• restored answer");
 let editorFactory;
+let terminalInputListener;
 let expanded = false;
 const notifications = [];
 const widgets = new Map();
@@ -162,6 +163,10 @@ const ui = {
 	setToolsExpanded: (value) => { expanded = value; },
 	notify: (message) => { notifications.push(message); },
 	setWidget: (key, content) => { if (content === undefined) widgets.delete(key); else widgets.set(key, content); },
+	onTerminalInput: (handler) => {
+		terminalInputListener = handler;
+		return () => { terminalInputListener = undefined; };
+	},
 	getEditorComponent: () => undefined,
 	setEditorComponent: (factory) => { editorFactory = factory; },
 };
@@ -261,6 +266,21 @@ assert.equal(leaderHasBackground(), false);
 const editor = editorFactory({ requestRender() {} }, {}, {
 	matches: (data, action) => data === "\x0f" && action === "app.tools.expand",
 });
+// Pi resets user bindings after session_start during /reload. Raw input must
+// restore the alias before the actual ToolkitEditor receives the same sequence.
+getKeybindings().setUserBindings({});
+assert.equal(getKeybindings().matches("\x1b[127;5u", "tui.editor.deleteWordBackward"), false);
+assert.equal(terminalInputListener("\x1b[127;5u"), undefined);
+editor.setText("hello world");
+editor.handleInput("\x1b[127;5u");
+assert.equal(editor.getText(), "hello ");
+editor.setText("hello world");
+editor.handleInput("\x17");
+assert.equal(editor.getText(), "hello ");
+editor.setText("hello world");
+editor.handleInput("\x7f");
+assert.equal(editor.getText(), "hello worl");
+editor.setText("");
 assert.equal(editor.getPaddingX(), 1);
 editor.setPaddingX(0);
 assert.equal(editor.getPaddingX(), 1);

@@ -26,12 +26,14 @@ import {
 	Spacer,
 	Text,
 	matchesKey,
+	getKeybindings,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import registerAskUserQuestion from "./pi-toolkit-lib/ask-user-question/register.js";
 import { registerBackgroundBash } from "./pi-toolkit-lib/background-bash.js";
 import registerCompactContext from "./pi-toolkit-lib/compact-context.js";
 import registerFooter from "./pi-toolkit-lib/footer.js";
+import { installWordDeleteAlias, maintainWordDeleteAlias } from "./pi-toolkit-lib/editor-keybindings.js";
 import registerGoals from "./pi-toolkit-lib/goals.js";
 import registerUsage from "./pi-toolkit-lib/usage.js";
 import registerAutomaticSessionTitles, { registerLiteVirtualModel } from "./pi-toolkit-lib/session-title.js";
@@ -312,9 +314,14 @@ class ToolkitEditor extends CustomEditor {
 function registerWorkflowEditor(pi: ExtensionAPI, controls?: ToolControls): void {
 	let previousEditor: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
 	let installed = false;
+	let restoreWordDeleteAlias: (() => void) | undefined;
 
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
+		restoreWordDeleteAlias?.();
+		restoreWordDeleteAlias = ctx.ui.onTerminalInput
+			? maintainWordDeleteAlias(getKeybindings(), (handler) => ctx.ui.onTerminalInput(handler))
+			: installWordDeleteAlias(getKeybindings());
 		ensureActivityThemePatch();
 		previousEditor = ctx.ui.getEditorComponent();
 		ctx.ui.setEditorComponent((tui, theme, keybindings) =>
@@ -336,6 +343,8 @@ function registerWorkflowEditor(pi: ExtensionAPI, controls?: ToolControls): void
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
+		restoreWordDeleteAlias?.();
+		restoreWordDeleteAlias = undefined;
 		if (!installed) return;
 		ctx.ui.setWidget("ptk-paste-hint", undefined);
 		ctx.ui.setEditorComponent(previousEditor);

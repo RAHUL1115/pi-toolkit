@@ -54,7 +54,7 @@ If migrating from standalone Goal or unified-subagent extensions, remove their o
 | `/agents` | View running and completed agents |
 | `/agents-options` | Manage agent types, schedules, running jobs, and settings |
 | `/goal` | Manage a session goal; start with `/goal <objective>`, or use `status`, `pause`, `resume`, `edit`, and `clear` |
-| `/economy on\|off\|stats\|allow <path>` | Toggle the default-on large-read guard, inspect savings, or permit one exact read |
+| `/economy on\|off\|stats` | Toggle the 16 KiB read-content cap; inspect reads shortened, bytes withheld, estimated tokens avoided, and bulk-reader usage. Guidance stays cache-stable and bulk-reader stays available in both modes. |
 | `/skills-clear` | Clear the active dollar-skill set |
 
 `/agents` opens the activity list directly. Agent types, schedules, settings, and the workflow inspector are under `/agents-options`; they are not submenus of `/agents`.

@@ -52,7 +52,20 @@ export type Question = Static<typeof QuestionSchema>;
 //   Free-text:           { [question]: "user typed text" }
 //   Cancelled:           key absent from answers; cancelled: true
 
+export const AnswerDetailSchema = Type.Object({
+  questionIndex: Type.Integer({ minimum: 0 }),
+  kind: Type.Union([Type.Literal("option"), Type.Literal("custom"), Type.Literal("multi")]),
+  selectedLabels: Type.Array(Type.String()),
+  customText: Type.Optional(Type.String()),
+  note: Type.Optional(Type.String()),
+});
+
+export type AnswerDetail = Static<typeof AnswerDetailSchema>;
+
 export const ResultSchema = Type.Object({
+  answerDetails: Type.Array(AnswerDetailSchema),
+  globalNote: Type.Optional(Type.String()),
+  error: Type.Optional(Type.String()),
   // Pass-through so renderResult has headers + option descriptions without
   // re-parsing the LLM input.
   questions: Type.Array(QuestionSchema),

@@ -139,7 +139,8 @@ describe("render — single question", () => {
     for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
     expect(c.render(80).join("\n")).toContain("[dim]Type your own answer...");
     c.handleInput("M");
-    expect(c.render(80).join("\n")).toContain("[text]M");
+    expect(c.render(80).some((line) => stripAnsi(line).startsWith("M"))).toBe(true);
+    expect(c.render(80).join("\n")).not.toContain("[dim]M");
   });
 
   it("renders option descriptions", () => {
@@ -498,7 +499,7 @@ describe("handleInput — free-text mode", () => {
     for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
     expect(c.render(80).some((line) => line.includes("Your answer:"))).toBe(false);
     c.handleInput("M");
-    expect(c.render(80).some((line) => /^>.*4\. M/.test(stripAnsi(line)))).toBe(true);
+    expect(c.render(80).some((line) => stripAnsi(line).startsWith("M"))).toBe(true);
     expect(c.render(80).join("\n")).not.toContain("Type your own answer...");
     c.handleInput(INPUT.up);
     const lines = c.render(80);
@@ -526,17 +527,17 @@ describe("handleInput — free-text mode", () => {
     for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
     c.handleInput(INPUT.space);
     c.handleInput("M");
-    expect(c.render(80).some((line) => /^>.*4\. M/.test(stripAnsi(line)))).toBe(true);
+    expect(c.render(80).some((line) => stripAnsi(line).startsWith("M"))).toBe(true);
   });
 
-  it("pasted text replaces the placeholder on the same row", () => {
+  it("pasted text replaces the placeholder with the multiline editor", () => {
     const c = make([singleSelect]);
     for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
     c.handleInput("\x1b[200~A long answer\x1b[201~");
-    expect(c.render(80).some((line) => /^>.*4\. A long answer/.test(stripAnsi(line)))).toBe(true);
+    expect(c.render(80).some((line) => stripAnsi(line).startsWith("A long answer"))).toBe(true);
   });
 
-  it("Esc in edit mode restores the placeholder", () => {
+  it("Esc in edit mode restores the placeholder without committing the draft", () => {
     const c = make([singleSelect]);
     for (let i = 0; i < 10; i++) c.handleInput(INPUT.down);
     c.handleInput("M");

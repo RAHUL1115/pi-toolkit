@@ -39,11 +39,10 @@ import registerAutomaticSessionTitles, { registerLiteVirtualModel } from "./pi-t
 import { liteModelSetting } from "./pi-toolkit-lib/lite-model-setting.js";
 import { LITE_REASONING_LEVELS, loadToolkitSettings, saveToolkitSettings, type LiteReasoningEffort, type ToolkitSettings as Settings } from "./pi-toolkit-lib/toolkit-settings.js";
 import registerSkillLoader from "./pi-toolkit-lib/skill-loader.js";
+import { registerTranscriptPadding, TOOLKIT_OUTPUT_PADDING_X } from "./pi-toolkit-lib/transcript-padding.js";
 import { registerUnifiedSubagents } from "./pi-toolkit-lib/unified-subagents/index.js";
 
 const SETTINGS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "pi-toolkit.json");
-const READ_PREVIEW_EDGE_LINES = 10;
-const TOOL_PREVIEW_EDGE_LINES = 2;
 const TOOL_VIEW_KEY = "ctrl+q";
 const TOOL_VIEW_KEY_LABEL = "Ctrl+Q";
 
@@ -92,6 +91,8 @@ function subject(tool: string, args: Args, compact = true): string {
 	switch (tool) {
 		case "bash":
 			return display(args.command, "command", compact);
+		case "codemode":
+			return display(args.code, "script", compact);
 		case "bash_output":
 		case "bash_stop":
 			return display(args.job_id, "task", compact);
@@ -139,18 +140,6 @@ function expandedBody(tool: string, args: Args, output: string, details: Details
 	if (tool === "edit" && typeof details?.diff === "string") return details.diff;
 	if (tool === "write" && typeof args.content === "string") return args.content;
 	return output;
-}
-
-function previewBody(body: string, edgeLines: number): string {
-	const lines = body.split("\n");
-	while (lines.at(-1) === "") lines.pop();
-	const hidden = lines.length - edgeLines * 2;
-	if (hidden <= 0) return lines.join("\n");
-	return [
-		...lines.slice(0, edgeLines),
-		`... (${hidden} more lines)`,
-		...lines.slice(-edgeLines),
-	].join("\n");
 }
 
 function colorBodyLine(tool: string, line: string, theme: RenderTheme): string {
@@ -362,8 +351,14 @@ function registerCompactTools(
 	backgroundBash: ReturnType<typeof registerBackgroundBash>,
 ): ToolControls {
 	const cwd = process.cwd();
-	let outputPad = loadOutputPad();
+	let outputPad = settings.customStyling ? TOOLKIT_OUTPUT_PADDING_X : loadOutputPad();
+	type GroupRenderers = Pick<ToolDefinition<any, any, CompactState>, "renderShell" | "renderCall" | "renderResult">;
+	// Pi 1.1 can override rendering without replacing a tool's execution/schema.
+	const rendererApi = pi as ExtensionAPI & {
+		registerToolRenderer?: (resolver: (name: string, next: () => GroupRenderers | undefined) => GroupRenderers | undefined) => void;
+	};
 	const supported = new Set(["read", "bash", "bash_output", "bash_stop", "edit", "write", "grep", "find", "ls"]);
+	if (rendererApi.registerToolRenderer) supported.add("codemode");
 	const calls = new Map<string, GroupCall>();
 	const groups = new Map<string, ToolGroup>();
 	const shells = new Map<string, Container>();
@@ -395,53 +390,37 @@ function registerCompactTools(
 		const renderActivity = (call: GroupCall, index: number, width: number): string => {
 			const callHint = index === group.calls.length - 1 ? hint : "";
 			const heading = `${theme.fg("toolTitle", call.tool)} ${theme.fg("accent", subject(call.tool, call.args, false))}${status(call)}${callHint}`;
-			const headingLines = wrapTextWithAnsi(heading, Math.max(1, width - (settings.customStyling ? 4 : 0)));
-			const lines = headingLines.map((line, lineIndex) => `${settings.customStyling ? (lineIndex === 0 ? "• " : "  │ ") : ""}${line}`);
+			const headingLines = wrapTextWithAnsi(heading, Math.max(1, width - 2));
+			// Branches align with the parent; only "└ " separates their content.
+			const lines = headingLines.map((line, lineIndex) => `${lineIndex === 0 ? (settings.customStyling ? "• " : "") : "│ "}${line}`);
 			if (running || call.partial) return lines.join("\n");
 			const body = expandedBody(call.tool, call.args, call.output, call.details);
 			if (!body) return lines.join("\n");
-			const renderedBody = detail === "expanded"
-				? body
-				: previewBody(body, call.tool === "read" ? READ_PREVIEW_EDGE_LINES : TOOL_PREVIEW_EDGE_LINES);
 			let firstOutputLine = true;
-			for (const bodyLine of renderedBody.split("\n")) {
-				const wrapped = wrapTextWithAnsi(colorBodyLine(call.tool, bodyLine, theme), Math.max(1, width - (settings.customStyling ? 4 : 0)));
+			for (const bodyLine of body.split("\n")) {
+				const wrapped = wrapTextWithAnsi(colorBodyLine(call.tool, bodyLine, theme), Math.max(1, width - 2));
 				for (const line of wrapped) {
-					lines.push(`${settings.customStyling ? (firstOutputLine ? "  └ " : "    ") : ""}${line}`);
+					lines.push(`${firstOutputLine ? "└ " : "  "}${line}`);
 					firstOutputLine = false;
 				}
 			}
 			return lines.join("\n");
 		};
 
-		if (detail === "collapsed" && settings.toolView !== "normal") {
+		if (detail === "collapsed") {
 			group.leader.addChild(new ActivityText((width) => {
 				const lines = [`${theme.fg("toolTitle", theme.bold(`${settings.customStyling ? "• " : ""}tools ${countText}`))}${hint}`];
 				if (settings.toolView === "list") {
 					for (const [index, call] of group.calls.entries()) {
 						const branch = index === group.calls.length - 1 ? "└" : "├";
 						const heading = `${theme.fg("toolTitle", call.tool)} ${theme.fg("accent", subject(call.tool, call.args))}${status(call)}`;
-						const wrapped = wrapTextWithAnsi(heading, Math.max(1, width - (settings.customStyling ? 4 : 0)));
-						lines.push(`${settings.customStyling ? `  ${branch} ` : ""}${wrapped[0] ?? ""}`);
-						for (const line of wrapped.slice(1)) lines.push(`${settings.customStyling ? "  │ " : ""}${line}`);
+						const wrapped = wrapTextWithAnsi(heading, Math.max(1, width - 2));
+						lines.push(`${branch} ${wrapped[0] ?? ""}`);
+						for (const line of wrapped.slice(1)) lines.push(`│ ${line}`);
 					}
 				}
 				return lines.join("\n");
 			}, outputPad));
-			return;
-		}
-
-		if (detail === "collapsed") {
-			const background = running
-				? "toolPendingBg"
-				: group.calls.some((call) => call.error)
-					? "toolErrorBg"
-					: "toolSuccessBg";
-			group.leader.addChild(new ActivityText(
-				(width) => group.calls.map((call, index) => renderActivity(call, index, width)).join("\n\n"),
-				outputPad,
-				(text) => theme.bg(background, text),
-			));
 			return;
 		}
 
@@ -613,55 +592,58 @@ function registerCompactTools(
 		createLsToolDefinition(cwd),
 	];
 
+	const renderersFor = (toolName: string): GroupRenderers => ({
+		renderShell: "self",
+		renderCall(args, theme, context) {
+			// Pi 1.1 supplies outputPad; older SDK types do not declare it.
+			const nativePadding = (context as typeof context & { outputPad?: number }).outputPad;
+			if (!settings.customStyling && nativePadding !== undefined) outputPad = nativePadding;
+			const callArgs = args as Args;
+			detail = context.expanded ? "expanded" : "collapsed";
+			let call = calls.get(context.toolCallId);
+			if (!call) {
+				makeGroup([{ id: context.toolCallId, tool: toolName, args: callArgs }]);
+				call = calls.get(context.toolCallId)!;
+			}
+			call.args = callArgs;
+			context.state.call = call;
+			const shell = context.lastComponent instanceof Container ? context.lastComponent : new Container();
+			shells.set(call.id, shell);
+			call.shell = shell;
+			const group = call.group;
+			group.theme = theme;
+			if (group.calls[0] === call) group.invalidate = context.invalidate;
+			syncShells(group);
+			paint(group, theme);
+			if (group.calls[0] !== call) group.invalidate?.();
+			return shell;
+		},
+		renderResult(result, { isPartial }, theme, context) {
+			const nativePadding = (context as typeof context & { outputPad?: number }).outputPad;
+			if (!settings.customStyling && nativePadding !== undefined) outputPad = nativePadding;
+			detail = context.expanded ? "expanded" : "collapsed";
+			const call = context.state.call ?? calls.get(context.toolCallId);
+			if (call) {
+				call.args = context.args as Args;
+				call.output = textContent(result);
+				call.details = result.details as Details;
+				call.partial = isPartial;
+				call.error = context.isError;
+				paint(call.group, theme);
+				if (call.group.calls[0] !== call) call.group.invalidate?.();
+			}
+			const shell = context.lastComponent instanceof Container ? context.lastComponent : new Container();
+			shell.clear();
+			return shell;
+		},
+	});
+
 	for (const original of toolDefinitions) {
 		const tool = original as ToolDefinition<any, any, CompactState>;
-		pi.registerTool({
-			...tool,
-			renderShell: "self",
-			renderCall(args, theme, context) {
-				// Pi 1.1 supplies outputPad; older SDK types do not declare it.
-				const nativePadding = (context as typeof context & { outputPad?: number }).outputPad;
-				if (!settings.customStyling && nativePadding !== undefined) outputPad = nativePadding;
-				const callArgs = args as Args;
-				detail = context.expanded ? "expanded" : "collapsed";
-				let call = calls.get(context.toolCallId);
-				if (!call) {
-					makeGroup([{ id: context.toolCallId, tool: tool.name, args: callArgs }]);
-					call = calls.get(context.toolCallId)!;
-				}
-				call.args = callArgs;
-				context.state.call = call;
-				const shell = context.lastComponent instanceof Container ? context.lastComponent : new Container();
-				shells.set(call.id, shell);
-				call.shell = shell;
-				const group = call.group;
-				group.theme = theme;
-				if (group.calls[0] === call) group.invalidate = context.invalidate;
-				syncShells(group);
-				paint(group, theme);
-				if (group.calls[0] !== call) group.invalidate?.();
-				return shell;
-			},
-			renderResult(result, { isPartial }, theme, context) {
-				const nativePadding = (context as typeof context & { outputPad?: number }).outputPad;
-				if (!settings.customStyling && nativePadding !== undefined) outputPad = nativePadding;
-				detail = context.expanded ? "expanded" : "collapsed";
-				const call = context.state.call ?? calls.get(context.toolCallId);
-				if (call) {
-					call.args = context.args as Args;
-					call.output = textContent(result);
-					call.details = result.details as Details;
-					call.partial = isPartial;
-					call.error = context.isError;
-					paint(call.group, theme);
-					if (call.group.calls[0] !== call) call.group.invalidate?.();
-				}
-				const shell = context.lastComponent instanceof Container ? context.lastComponent : new Container();
-				shell.clear();
-				return shell;
-			},
-		});
+		pi.registerTool({ ...tool, ...renderersFor(tool.name) });
 	}
+	const codemodeRenderers = renderersFor("codemode");
+	rendererApi.registerToolRenderer?.((name, next) => name === "codemode" ? codemodeRenderers : next());
 
 	const repaint = (): void => {
 		for (const group of groups.values()) {
@@ -672,17 +654,17 @@ function registerCompactTools(
 
 	return {
 		toggleExpanded(ctx) {
-			detail = detail === "collapsed" ? "expanded" : "collapsed";
+			detail = ctx.ui.getToolsExpanded() ? "collapsed" : "expanded";
 			ctx.ui.setToolsExpanded(detail === "expanded");
 			repaint();
 		},
 		cycleCollapsed(ctx) {
-			if (detail !== "collapsed") return;
-			settings.toolView = settings.toolView === "one line"
-				? "list"
-				: settings.toolView === "list" ? "normal" : "one line";
+			// A layout shortcut must work from expanded output too, not silently ignore it.
+			detail = "collapsed";
+			if (ctx.ui.getToolsExpanded()) ctx.ui.setToolsExpanded(false);
+			settings.toolView = settings.toolView === "one line" ? "list" : "one line";
 			saveSettings(settings);
-			ctx.ui.notify(`Collapsed tool view: ${settings.toolView}`, "info");
+			ctx.ui.notify(`Tool output: collapsed - ${settings.toolView}`, "info");
 			repaint();
 		},
 	};
@@ -847,6 +829,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	registerCompactContext(pi);
 	registerUsage(pi);
 	const settings = loadToolkitSettings(SETTINGS_PATH);
+	registerTranscriptPadding(pi, settings.customStyling);
 	registerTranscriptMarkers(pi, settings);
 	const litePreference = () => settings.liteModel;
 	const backgroundBash = registerBackgroundBash(pi, undefined, undefined, litePreference);
@@ -894,7 +877,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 				{
 					id: "customStyling",
 					label: "Custom input/output styling",
-					description: "Adds input padding and output prefixes, gutters, and separators. Turn off to use Pi's native padding and unmarked output; editor shortcuts and tool grouping stay enabled.",
+					description: "Uses PTK padding for input and the entire transcript, with output prefixes, gutters, and separators. Turn off to use Pi's native input/output padding; editor shortcuts and tool grouping stay enabled.",
 					currentValue: settings.customStyling ? "on" : "off",
 					values: ["on", "off"],
 				},

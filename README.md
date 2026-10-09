@@ -12,7 +12,7 @@ Toolkit loads through **one extension entrypoint**, `index.ts`. Goals and unifie
 
 | Area | Custom behavior |
 |---|---|
-| Tool rendering | Groups consecutive built-in tool calls with collapsed, preview, and expanded layouts |
+| Tool rendering | Groups consecutive tool calls into a single-line summary or group tree, with full-output expansion |
 | Background tasks | Adds Claude Code-style background execution, `Ctrl+B` detachment, completion notifications, and a `/tasks` manager |
 | Unified subagents | Runs Pi, Claude Code, Codex, and Agy subagents through one `Agent` tool, shared Activity view, steering, results, schedules, and transcripts |
 | Subagent workflows | Deterministic script orchestration with checkpoints, structured output, validation gates, and a workflow inspector |
@@ -86,7 +86,7 @@ Use `/goal <objective>` to activate Goal mode. `/goal` opens its manager and set
 | Key | Behavior |
 |---|---|
 | `Ctrl+O` | Toggle grouped tool output between collapsed and fully expanded |
-| `Ctrl+Q` | Cycle the collapsed layout: `one line` → `list` → `normal` (same on Mac and Windows) |
+| `Ctrl+Q` | Toggle collapsed layout: one line for the whole group ↔ group tree (same on Mac and Windows) |
 | `Ctrl+B` | Detach a running foreground agent, or foreground Bash when no agent can be detached |
 
 `Ctrl+O` uses Pi's configurable `app.tools.expand` action. Toolkit uses **Ctrl+Q** for layout cycling on every platform, without Option/Meta or function-key configuration. The former Alt+O and F6 layout bindings are removed. With Compact tools enabled, Ctrl+Q takes precedence over Pi's default Windows/WSL follow-up shortcut; it cycles the layout instead of queuing a message.
@@ -126,7 +126,7 @@ When **Compact tools** is enabled, the toolkit replaces the rendering of these P
 - `find`
 - `ls`
 
-Toolkit's `bash_output` and `bash_stop` also participate in the group, using their task ID as the target. `bash_jobs` and other custom/unsupported tools keep their normal renderer and break the current group. Task-tool execution and output bounds are unchanged.
+Toolkit's `bash_output` and `bash_stop` also participate in the group, using their task ID as the target. On Pi 1.1+, `codemode` joins the same group through Pi's rendering-only resolver; its native execution, schema, and tool loadout remain unchanged. Older runtimes without that resolver retain native codemode rendering. `bash_jobs` and other custom/unsupported tools keep their normal renderer and break the current group. Task-tool execution and output bounds are unchanged.
 
 ### Group boundaries
 
@@ -149,32 +149,23 @@ Only aggregate counts are shown:
 • tools 2 read · 1 bash
 ```
 
-#### `list` (default)
+#### `list`: group tree (default)
 
 Shows aggregate counts plus each call's target and status:
 
 ```text
 • tools 1 read · 1 bash
-  ├ read README.md 120 lines
-  └ bash npm test 1 line
+├ read README.md 120 lines
+└ bash npm test 1 line
 ```
 
 Long subjects collapse whitespace and are truncated to 80 characters.
 
-#### `normal`
-
-Shows each call in a status-colored block with a bounded output preview:
-
-- `read`: first 10 lines, hidden count, last 10 lines
-- all other supported tools: first 2 lines, hidden count, last 2 lines
-- `edit`: colored added, removed, and context diff lines
-- `write`: preview of the content supplied to the tool
-
-Output bodies remain hidden while any call in the group is still running.
+These are the only two collapsed layouts. Saved `normal` layouts from older versions load as the group tree.
 
 ### Expanded layout
 
-`Ctrl+O` displays the complete output body for every call, with a separate status-colored block per tool. `Alt+O` cycles `one line` → `list` → `normal` only while the group is collapsed; it has no effect while output is expanded.
+`Ctrl+O` displays the complete output body for every call, with a separate status-colored block per tool. Output bodies remain hidden while any call in the group is still running. `Ctrl+Q` always toggles one line ↔ group tree. If output is expanded, it collapses the output and switches to the next layout in the same press.
 
 ### Status summaries
 
@@ -251,9 +242,11 @@ When the installed Pi version supports Markdown transformers, the toolkit adds d
 
 Markers do not modify stored messages or model context. User and assistant markers use the theme accent color; the thinking marker uses the same dim color as thinking text. User, assistant, and thinking blocks reserve a two-column gutter: the first line contains the marker and a space, while wrapped lines and nested Markdown continue beneath the content with two leading spaces. If visible thinking, narration, or tool activity occurs after an input, the toolkit places a thin, dim, full-width horizontal line immediately before the completed response; direct responses have no line. Abort and response-error statuses use `× ` in the same gutter; informational Pi status lines reserve the gutter with two spaces and no marker. Consecutive thinking summaries remain in one activity block without blank lines; toolkit rendering removes bold and italic emphasis and uses dim text.
 
-In `/ptk`, **Custom input/output styling** controls these decorations together (on by default). Turn it off to remove toolkit transcript prefixes, gutters, final-response separators, and status prefixes, and let Pi's native `editorPaddingX` and `outputPad` settings control padding. Thinking text also returns to Pi's normal styling. Tool grouping, editor shortcuts, repeatable paste, and the border-embedded working indicator stay enabled. Changes are saved and reload automatically when you close settings.
+In `/ptk`, **Custom input/output styling** controls these decorations together (on by default). Turn it off to remove toolkit transcript prefixes, gutters, final-response separators, and status prefixes, and let Pi's native `editorPaddingX` and `outputPad` settings control padding. Thinking text also returns to Pi's normal styling. Tool grouping, branch lines, and inner indentation remain enabled. Tool bullets are removed when styling is off, while outer padding switches to Pi's native settings. Editor shortcuts, repeatable paste, and the border-embedded working indicator stay enabled. Changes are saved and reload automatically when you close settings.
 
-With styling on, the toolkit editor uses one-column input padding instead of inheriting Pi's `editorPaddingX` value. This toggle does not modify Pi's `editorPaddingX` or `outputPad` settings.
+With styling on, PTK uses its own one-column input and transcript padding instead of inheriting Pi's `editorPaddingX` or `outputPad` values. This applies to native user messages, assistant replies and thinking, tools, and native transcript notices; third-party renderers can still add their own internal spacing. With styling off, Pi's native padding takes over for both input and output, including changes made in `/settings`. The toggle does not modify Pi's saved settings.
+
+Transcript padding uses a guarded adapter to Pi's interactive runtime because Pi currently has no public transcript-padding override API. On an unsupported runtime shape, the adapter leaves native padding in place; dialogs, widgets, headers, and footers are not patched.
 
 ## Dollar skills
 

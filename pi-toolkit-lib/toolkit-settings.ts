@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
-export type ToolView = "one line" | "list" | "normal";
+export type ToolView = "one line" | "list";
 export const LITE_REASONING_LEVELS = ["off", "low", "medium"] as const;
 export type LiteReasoningEffort = typeof LITE_REASONING_LEVELS[number];
 export const DEFAULT_LITE_REASONING: LiteReasoningEffort = "low";
@@ -30,7 +30,7 @@ export function loadToolkitSettings(path: string): ToolkitSettings {
 		customStyling: stored.customStyling !== false,
 		toolView: stored.toolView === "one line" || stored.toolView === "compact"
 			? "one line"
-			: stored.toolView === "normal" ? "normal" : "list",
+			: "list",
 		liteModel: liteModel && liteModel !== "Auto" ? liteModel : undefined,
 		liteReasoning: LITE_REASONING_LEVELS.includes(stored.liteReasoning as LiteReasoningEffort)
 			? stored.liteReasoning as LiteReasoningEffort : DEFAULT_LITE_REASONING,

@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 const extensionRoot = mkdtempSync(join(dirname(fileURLToPath(import.meta.url)), ".pi-toolkit-test-"));
 const cleanup = () => rmSync(extensionRoot, { recursive: true, force: true });
 process.on("exit", cleanup);
+// Isolate native settings and deliberately conflict with PTK's styled padding.
+const agentDir = join(extensionRoot, "agent");
+mkdirSync(agentDir);
+process.env.PI_CODING_AGENT_DIR = agentDir;
+writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ outputPad: 0, editorPaddingX: 3 }));
 cpSync(join(sourceRoot, "index.ts"), join(extensionRoot, "index.ts"));
 cpSync(join(sourceRoot, "pi-toolkit-lib"), join(extensionRoot, "pi-toolkit-lib"), { recursive: true });
 writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
@@ -16,8 +22,8 @@ writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 }, null, 2));
 
 const codingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
-const { loadExtensions } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
-const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
+const { loadExtensions, loadExtensionFromFactory } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
+const { getAgentDir, createEventBus, createExtensionRuntime } = await import("@earendil-works/pi-coding-agent");
 const { getMarkdownTheme, initTheme, theme: globalTheme } = await import(new URL("./modes/interactive/theme/theme.js", codingAgentEntry));
 const { ToolExecutionComponent } = await import(new URL("./modes/interactive/components/tool-execution.js", codingAgentEntry));
 const { Markdown, getKeybindings } = await import("@earendil-works/pi-tui");
@@ -229,6 +235,8 @@ const rendered = (width = 120) => {
 const leaderBlocks = () => leader.children[0]?.children ?? [];
 const leaderHasBackground = () => leaderBlocks()[0]?.hasBackground ?? false;
 const individualBackgrounds = () => leaderBlocks().filter((block) => block.hasBackground);
+assert(leader.render(120).map((line) => line.replace(ansiPattern, "")).some((line) => line.startsWith(" • tools")),
+	"styled tools use PTK padding even when native outputPad is zero");
 
 assert.match(rendered(), /read demo\.txt/);
 assert.match(rendered(), /bash generate output/);
@@ -316,46 +324,54 @@ const cycleCollapsedKey = "\x11"; // Ctrl+Q: identical on Mac and Windows.
 editor.handleInput(cycleCollapsedKey);
 assert.equal(editor.getText(), "");
 assert.equal(expanded, false);
-assert.equal(notifications.at(-1), "Collapsed tool view: normal");
-assert.equal(leaderBlocks().length, 1);
-assert.equal(leaderHasBackground(), true);
-assert.match(rendered(), /^• read demo\.txt 30 lines/m);
-assert.match(
-	rendered(),
-	/ {2}└ read line 01\n {4}read line 02[\s\S]* {4}read line 10\n {4}\.\.\. \(10 more lines\)\n {4}read line 21[\s\S]* {4}read line 30\n\n• bash/,
-);
-assert.doesNotMatch(rendered(), /read line 11/);
-assert.match(rendered(), / {2}└ bash line 01\n {4}bash line 02\n {4}\.\.\. \(26 more lines\)\n {4}bash line 29\n {4}bash line 30/);
-assert.doesNotMatch(rendered(), /bash line 03/);
-assert.match(rendered(), / {2}└ write line 01\n {4}write line 02\n {4}\.\.\. \(26 more lines\)\n {4}write line 29\n {4}write line 30/);
-assert.doesNotMatch(rendered(), /write line 03/);
-
-assert.match(rendered(50), /\n {2}│ /);
+assert.equal(notifications.at(-1), "Tool output: collapsed - one line");
+assert.equal(leaderHasBackground(), false);
+assert.match(rendered(), /• tools 1 read · 1 bash · 1 write/);
+assert.doesNotMatch(rendered(), /demo\.txt|read line 01/);
+editor.handleInput(cycleCollapsedKey);
+assert.equal(notifications.at(-1), "Tool output: collapsed - list");
+assert.match(rendered(), /\n├ read demo\.txt/);
+assert.match(rendered(), /\n└ write written\.txt/);
+assert.doesNotMatch(rendered(), /read line 01/);
 editor.handleInput("\x0f");
 assert.equal(expanded, true);
 assert.equal(leaderHasBackground(), true);
 assert.equal(individualBackgrounds().length, 3);
+assert.match(rendered(), /└ read line 01\n {2}read line 02/);
+assert.match(rendered(50), /\n│ /);
 assert.match(rendered(), /read line 11/);
 assert.match(rendered(), /bash line 30/);
 assert.match(rendered(), /write line 30/);
 editor.handleInput(cycleCollapsedKey);
-assert.equal(expanded, true);
-assert.equal(notifications.at(-1), "Collapsed tool view: normal");
-assert.equal(individualBackgrounds().length, 3);
-editor.handleInput("\x0f");
-assert.equal(expanded, false);
-assert.match(rendered(), /read line 01/);
-editor.handleInput(cycleCollapsedKey);
-assert.equal(notifications.at(-1), "Collapsed tool view: one line");
-assert.match(rendered(), /• tools 1 read · 1 bash · 1 write/);
+assert.equal(expanded, false, "Ctrl+Q exits expanded output instead of becoming a no-op");
+assert.equal(notifications.at(-1), "Tool output: collapsed - one line");
+assert.equal(individualBackgrounds().length, 0);
 assert.doesNotMatch(rendered(), /demo\.txt|read line 01/);
 editor.handleInput(cycleCollapsedKey);
-assert.equal(notifications.at(-1), "Collapsed tool view: list");
+assert.equal(notifications.at(-1), "Tool output: collapsed - list");
 assert.match(rendered(), /demo\.txt/);
+editor.handleInput("\x0f");
+assert.equal(expanded, true);
+assert.match(rendered(), /read line 11/);
+editor.handleInput("\x0f");
+assert.equal(expanded, false);
 assert.doesNotMatch(rendered(), /read line 01/);
-editor.handleInput(cycleCollapsedKey);
-assert.equal(notifications.at(-1), "Collapsed tool view: normal");
-assert.match(rendered(), /read line 01/);
+for (let cycle = 0; cycle < 3; cycle++) {
+	editor.handleInput("\x0f");
+	assert.equal(expanded, true);
+	editor.handleInput(cycleCollapsedKey);
+	assert.equal(expanded, false);
+	assert.equal(notifications.at(-1), "Tool output: collapsed - one line");
+	assert.match(rendered(), /• tools 1 read · 1 bash · 1 write/);
+	assert.doesNotMatch(rendered(), /demo\.txt|read line 01/);
+	editor.handleInput("\x0f");
+	assert.equal(expanded, true);
+	editor.handleInput(cycleCollapsedKey);
+	assert.equal(expanded, false);
+	assert.equal(notifications.at(-1), "Tool output: collapsed - list");
+	assert.match(rendered(), /demo\.txt/);
+	assert.doesNotMatch(rendered(), /read line 01/);
+}
 
 // Removed bindings must no longer cycle layouts.
 const beforeRemovedShortcuts = notifications.length;
@@ -374,6 +390,8 @@ const editDiff = [
 ].join("\n");
 states["edit-color"] = {};
 invalidations["edit-color"] = 0;
+editor.handleInput("\x0f"); // Diff bodies are now available only in expanded output.
+assert.equal(expanded, true);
 const editLeader = edit.renderCall(editArgs, theme, context("edit-color", editArgs));
 edit.renderResult(
 	{ content: [{ type: "text", text: "Successfully replaced 1 block" }], details: { diff: editDiff } },
@@ -383,13 +401,13 @@ foregrounds.length = 0;
 editLeader.render(120);
 assert(foregrounds.some(({ color, text }) => color === "toolDiffRemoved" && text.includes("-1 old")));
 assert(foregrounds.some(({ color, text }) => color === "toolDiffAdded" && text.includes("+1 new")));
-assert(foregrounds.some(({ color, text }) => color === "toolDiffContext" && text.includes("26 more lines")));
+assert(foregrounds.some(({ color, text }) => color === "toolDiffContext" && text.includes("2 same")));
 const editRendered = editLeader.render(120).join("\n");
-assert.match(editRendered, /-1 old[\s\S]*\+1 new[\s\S]*\.\.\. \(26 more lines\)[\s\S]*-29 tail-old[\s\S]*\+30 tail-new/);
-assert.doesNotMatch(editRendered, / 2 same/);
+assert.match(editRendered, /-1 old[\s\S]*\+1 new[\s\S]* 2 same[\s\S]*-29 tail-old[\s\S]*\+30 tail-new/);
+editor.handleInput("\x0f");
 editor.handleInput(cycleCollapsedKey);
 assert.equal(expanded, false);
-assert.equal(notifications.at(-1), "Collapsed tool view: one line");
+assert.equal(notifications.at(-1), "Tool output: collapsed - one line");
 await ends[0]({ message: { role: "user", content: "end diff color test" } });
 
 await ends[0]({ message: { role: "assistant", content: [
@@ -501,7 +519,7 @@ const replayFollower = read.renderCall({ path: "a.ts" }, theme, context("replay-
 assert.match(replayLeader.render(120).join("\n"), /tools 1 find · 1 read/);
 assert.equal(replayFollower.render(120).join("").trim(), "");
 editor.handleInput(cycleCollapsedKey);
-assert.equal(notifications.at(-1), "Collapsed tool view: list");
+assert.equal(notifications.at(-1), "Tool output: collapsed - list");
 
 await ends[0]({ message: { role: "user", content: "real component boundary" } });
 const realArgs = { command: "single real component" };
@@ -566,8 +584,23 @@ const oneLineRendered = oneLineLeader.render(120).join("\n");
 assert.match(oneLineRendered, /• tools 1 read · 1 bash · 1 bash_output · 1 bash_stop/);
 assert.doesNotMatch(oneLineRendered, /one-line\.txt|echo one-line/);
 
-// Reload with styling disabled: native padding takes over, with no toolkit
-// transcript/tool gutters or persistent theme-patch markers.
+// Native outputPad updates must not affect styled PTK tools, in calls or results.
+for (const outputPad of [0, 1, 0]) {
+	const args = { command: "echo styled" };
+	const styledContext = { ...context(`styled-padding-${outputPad}`, args), state: {}, outputPad, expanded: true, invalidate() {} };
+	const styledTool = oneLineExtension.tools.get("bash").definition;
+	const shell = styledTool.renderCall(args, theme, styledContext);
+	styledTool.renderResult({ content: [{ type: "text", text: "styled output" }], details: {} },
+		{ expanded: true, isPartial: false }, theme, styledContext);
+	const lines = shell.render(120).map((line) => line.replace(ansiPattern, "").trimEnd());
+	assert(lines.some((line) => line.startsWith(" • bash echo styled")));
+	assert(lines.includes(" └ styled output"));
+}
+assert.deepEqual(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")), { outputPad: 0, editorPaddingX: 3 },
+	"toolkit styling never rewrites native settings");
+
+// Reload with styling disabled: native outer padding takes over while the
+// grouped-tool tree stays intact; theme-patch markers are still removed.
 writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 	autoSessionTitles: false, dollarSkills: false, customStyling: false,
 }));
@@ -601,15 +634,17 @@ try {
 } catch { /* Pi's default output padding */ }
 const nativePrefix = " ".repeat(nativeOutputPad);
 const plainLines = plainLeader.render(120).map((line) => line.replace(ansiPattern, "").trimEnd());
-assert(plainLines.some((line) => line.startsWith(`${nativePrefix}read plain.txt`)));
+assert(plainLines.some((line) => line.startsWith(`${nativePrefix}└ read plain.txt`)),
+	"disabling custom padding preserves tool branch lines and internal indentation");
 assert(plainLines.some((line) => line.startsWith(`${nativePrefix}tools 1 read`)));
-assert(!plainLines.some((line) => /[•│└├]/.test(line)));
+assert(!plainLines.some((line) => line.includes("•")), "disabled styling removes bullets but preserves branches");
 plainContext.expanded = true;
 plainRead.renderResult({ content: [{ type: "text", text: "plain output" }], details: {} },
 	{ expanded: true, isPartial: false }, theme, plainContext);
 const plainExpanded = plainLeader.render(120).map((line) => line.replace(ansiPattern, "").trimEnd());
-assert(plainExpanded.includes(`${nativePrefix}plain output`));
-assert(!plainExpanded.some((line) => /[•│└├]/.test(line)));
+assert(plainExpanded.some((line) => line.startsWith(`${nativePrefix}read plain.txt`)));
+assert(!plainExpanded.some((line) => line.includes("•")));
+assert(plainExpanded.includes(`${nativePrefix}└ plain output`));
 
 // Self-rendered tools must use the live padding Pi supplies in the render
 // context, even when it differs from the global setting at registration.
@@ -624,8 +659,58 @@ for (const outputPad of [0, 1, 0]) {
 		{ expanded: true, isPartial: false }, theme, paddingContext);
 	const lines = shell.render(180).map((line) => line.replace(ansiPattern, "").trimEnd());
 	assert(lines.some((line) => line.startsWith(`${" ".repeat(outputPad)}bash ${paddingCommand}`)));
-	assert(lines.includes(`${" ".repeat(outputPad)}bash output`));
+	assert(lines.includes(`${" ".repeat(outputPad)}└ bash output`));
 }
+
+// Exercise Pi 1.1's rendering-only resolver even on the older development SDK.
+// Codemode must join the same group without replacing its native tool definition.
+const { createJiti } = createRequire(codingAgentEntry)("jiti");
+const factory = await createJiti(extensionPath).import(extensionPath, { default: true });
+const resolvers = [];
+const resolverExtension = await loadExtensionFromFactory(
+	(pi) => factory({ ...pi, registerToolRenderer: (resolver) => resolvers.push(resolver) }),
+	extensionRoot, createEventBus(), createExtensionRuntime(), extensionPath,
+);
+assert.equal(resolvers.length, 1);
+assert(!resolverExtension.tools.has("codemode"), "codemode execution/schema/loadout must remain native");
+const fallback = { renderShell: "default" };
+assert.equal(resolvers[0]("other-tool", () => fallback), fallback);
+const codemode = resolvers[0]("codemode", () => fallback);
+assert.equal(codemode.renderShell, "self");
+const scriptArgs = { code: 'const value = await tools.read({ path: "demo.txt" });\ntext(value);' };
+const mixedSpecs = [
+	{ id: "mixed-read", name: "read", args: { path: "demo.txt" } },
+	{ id: "mixed-code", name: "codemode", args: scriptArgs },
+	{ id: "mixed-bash", name: "bash", args: { command: "echo done" } },
+];
+await resolverExtension.handlers.get("message_update").at(-1)({ message: {
+	role: "assistant", content: mixedSpecs.map(({ id, name, args }) => toolCall(id, name, args)),
+} });
+const mixedContexts = mixedSpecs.map(({ id, args }) => ({
+	...context(id, args), state: {}, expanded: false, outputPad: 1, invalidate() {},
+}));
+const mixedRead = resolverExtension.tools.get("read").definition;
+const mixedBash = resolverExtension.tools.get("bash").definition;
+const mixedLeader = mixedRead.renderCall(mixedSpecs[0].args, theme, mixedContexts[0]);
+const codeFollower = codemode.renderCall(scriptArgs, theme, mixedContexts[1]);
+const mixedFollower = mixedBash.renderCall(mixedSpecs[2].args, theme, mixedContexts[2]);
+let mixedLines = mixedLeader.render(180).map((line) => line.replace(ansiPattern, "").trimEnd());
+assert(mixedLines.some((line) => line.startsWith(" tools 1 read · 1 codemode · 1 bash")));
+assert(mixedLines.some((line) => line.startsWith(" ├ codemode const value")));
+assert.deepEqual(codeFollower.render(180), []);
+assert.deepEqual(mixedFollower.render(180), []);
+// Header and branches share one outer inset; branch content has a 2-column prefix.
+assert(mixedLines.some((line) => line.startsWith(" └ bash echo done")));
+mixedRead.renderResult({ content: [{ type: "text", text: "read result" }], details: {} },
+	{ isPartial: false }, theme, mixedContexts[0]);
+mixedBash.renderResult({ content: [{ type: "text", text: "bash result" }], details: {} },
+	{ isPartial: false }, theme, mixedContexts[2]);
+mixedContexts[1].expanded = true;
+codemode.renderResult({ content: [{ type: "text", text: "script result" }], details: {} },
+	{ isPartial: false }, theme, mixedContexts[1]);
+mixedLines = mixedLeader.render(180).map((line) => line.replace(ansiPattern, "").trimEnd());
+assert(mixedLines.some((line) => line.startsWith(" codemode const value")));
+assert(mixedLines.includes(" └ script result"));
 
 cleanup();
 console.log("grouped tool renderer verified");

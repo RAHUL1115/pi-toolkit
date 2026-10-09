@@ -37,6 +37,12 @@ describe("Toolkit Lite settings", () => {
 			expect(loadToolkitSettings(path).customStyling).toBe(enabled);
 		}
 	});
+	it.each(["normal", "list", "unknown"])("loads retired/unknown layout %s as the group tree", (layout) => {
+		const path = settingsPath();
+		writeFileSync(path, JSON.stringify({ toolView: layout }));
+		expect(loadToolkitSettings(path).toolView).toBe("list");
+	});
+
 	it("defaults to Auto for new and existing settings", () => {
 		const path = settingsPath();
 		expect(loadToolkitSettings(path)).toMatchObject({ liteModel: undefined, liteReasoning: "low" });

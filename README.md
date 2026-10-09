@@ -19,7 +19,7 @@ Toolkit loads through **one extension entrypoint**, `index.ts`. Goals and unifie
 | Transcript | Adds Codex-style activity markers to user, assistant, thinking, and tool content |
 | Session titles | Refreshes the session name after each turn using an available lightweight model |
 | Skills | Adds persistent `$skill-name` activation, fuzzy autocomplete, and lazy prompt loading |
-| User questions | Adds a structured `ask_user_question` tool with single-select, multi-select, and free-text answers |
+| User questions | Adds a structured `ask_user_question` tool with single-/multi-select, multiline custom answers, preserved drafts, notes, and configurable keybindings |
 | Context control | Adds an explicit-only `context_tool` tool for normal compaction or an opt-in blank chat |
 | Goals | Integrates upstream pi-goal for session-scoped objectives, settled-idle continuation, safety limits, completion, blocking, and external waiting |
 | Paste handling | Repeating a collapsed long paste expands it inline for editing |
@@ -281,9 +281,18 @@ Pi's native `disable-model-invocation: true` behavior is preserved: those skills
 
 ## Ask user questions
 
-The `ask_user_question` tool lets the agent pause for structured clarification in TUI mode. It supports one to four questions, two to four choices per question, single- and multi-select answers, custom free-text answers, tabbed navigation, and a final review screen.
+The `ask_user_question` tool lets the agent pause for structured clarification in TUI mode. It supports one to four questions, two to four choices per question, single- and multi-select answers, multiline custom answers, tabbed navigation, and a final review screen.
 
-Outside TUI mode, the tool returns an explanatory error and disables itself for the session.
+- **Multiline answers:** the custom-answer row uses Pi's multiline editor. Drafts are preserved per question when leaving the editor or switching tabs; they are submitted only when confirmed. Shift+Enter inserts a newline by default.
+- **Notes without changing your choice:** press `n` on a regular option to add a question-specific note, or on the Submit tab to add an overall note. Enter or Escape closes the notes editor while retaining its text. Notes do not count as answers.
+- **Configured keybindings:** selection, editing, submission, and cancellation follow Pi's bindings; newline takes precedence over submit inside editors. Left/Right and Tab/Shift+Tab switch question tabs outside text editing.
+- **Structured results:** `answerDetails` preserves answer kind, selected-label arrays, custom text, and notes. The existing `answers` map remains compatible. The declared output schema and `structuredContent` support programmatic consumers; the model still receives a readable summary.
+
+Multi-select answers can combine checked choices with custom text. One question submits immediately on confirmation; multiple questions require every question to be confirmed before final submission. Expanded tool results show multiline answers and notes.
+
+Outside TUI mode, the tool returns an explanatory error and disables itself for the session. Validation and unavailable-UI errors are distinguished from user cancellation.
+
+See [the question-tool guide](docs/ask-user-question.md) for keyboard behavior, draft handling, and the result contract. After updating the toolkit, run `/reload` to activate the changes.
 
 ## Compact context
 

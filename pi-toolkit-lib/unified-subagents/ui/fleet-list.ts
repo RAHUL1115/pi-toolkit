@@ -437,13 +437,11 @@ export class FleetList {
         ? "↑↓ select · enter view · esc back"
         : "esc to interrupt · ↓ to manage";
     const tabLabels = tabs.map(tab => {
-      const label = ` ${tab === "tasks" ? "Tasks" : "Agents"} ${this.rows(tab).length} `;
+      const label = `${tab === "tasks" ? "Tasks" : "Agents"}[${this.rows(tab).length}]`;
       const selected = this.focus != null && tab === this.selectedTab;
-      const text = selected ? theme.bold(theme.fg(this.focus === "tabs" ? "accent" : "text", label)) : theme.fg("muted", label);
-      const background = this.focus == null || selected ? "selectedBg" : "customMessageBg";
-      return theme.bg(background, text);
+      return selected ? theme.bold(theme.fg("accent", label)) : theme.fg("muted", label);
     });
-    const lines = [truncateToWidth(`  ${tabLabels.join(theme.fg("dim", "  |  "))}  ${theme.fg("dim", hint)}`, width)];
+    const lines = [truncateToWidth(`${tabLabels.join(theme.fg("dim", " • "))}  ${theme.fg("dim", hint)}`, width)];
     if (this.focus === "rows") {
       if (this.selectedTab === "tasks") lines.push(...this.renderTasks(width, theme));
       else lines.push(...this.renderAgents(width, theme));

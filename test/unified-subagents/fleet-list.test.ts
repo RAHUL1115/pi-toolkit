@@ -225,7 +225,7 @@ describe("FleetList navigation", () => {
 
     enterRows(h);
     const output = h.render(200).join("\n");
-    expect(output).toContain("Agents 1");
+    expect(output).toContain("Agents[1]");
     expect(output).toContain("workflow");
     expect(output).toContain("Verify integration");
     expect(output).toContain("2/4 agents");
@@ -280,7 +280,7 @@ describe("FleetList navigation", () => {
     await Promise.resolve();
 
     const output = h.render(240).join("\n");
-    expect(output).toContain("<selectedBg>*<text> Agents 2 </text>");
+    expect(output).toContain("*<accent>Agents[2]</accent>*");
     expect(h.render(240).find(line => line.includes("workflow row"))).toContain("●");
   });
 
@@ -303,9 +303,9 @@ describe("FleetList navigation", () => {
     const h = harness([makeRecord()], new Map(), [makeTask()]);
     h.press(DOWN);
     expect(h.render(240).join("\n")).toContain("←→ switch");
-    expect(h.render(240).join("\n")).toContain("<selectedBg>*<accent> Agents 1 </accent>");
+    expect(h.render(240).join("\n")).toContain("*<accent>Agents[1]</accent>*");
     expect(h.press(LEFT)).toEqual({ consume: true });
-    expect(h.render(240).join("\n")).toContain("<selectedBg>*<accent> Tasks 1 </accent>");
+    expect(h.render(240).join("\n")).toContain("*<accent>Tasks[1]</accent>*");
     h.press(DOWN);
     expect(h.render(240).find(line => line.includes("Run tests"))).toContain("●");
   });
@@ -318,22 +318,32 @@ describe("FleetList navigation", () => {
     expect(h.render().find(line => line.includes("Run tests"))).toContain("●");
     expect(h.press(RIGHT)).toEqual({ consume: true });
     const output = h.render().join("\n");
-    expect(output).toContain("<selectedBg>*<text> Agents 1 </text>");
+    expect(output).toContain("*<accent>Agents[1]</accent>*");
     expect(output).toContain("<accent>●</accent>");
   });
 
   it("collapses inactive rows to gray counters and keeps expanded rows tight", () => {
     const h = harness([makeRecord()], new Map(), [makeTask()]);
     const collapsed = h.render(240);
-    expect(collapsed[0]).toContain("<selectedBg><muted> Tasks 1 </muted></selectedBg>");
-    expect(collapsed[0]).toContain("<selectedBg><muted> Agents 1 </muted></selectedBg>");
-    expect(collapsed[0]).toContain("↓ to manage");
+    expect(collapsed[0]).toContain("<muted>Tasks[1]</muted><dim> • </dim><muted>Agents[1]</muted>");
+    expect(plain(collapsed[0])).toBe("Tasks[1] • Agents[1]  esc to interrupt · ↓ to manage");
+    expect(collapsed[0]).not.toMatch(/selectedBg|customMessageBg/);
     expect(collapsed).toHaveLength(2);
+    expect(collapsed.at(-1)).toBe("");
 
-    enterRows(h);
+    h.press(DOWN);
+    const focused = h.render(240);
+    expect(focused[0]).toContain("<muted>Tasks[1]</muted><dim> • </dim>*<accent>Agents[1]</accent>*");
+    expect(focused[0]).not.toMatch(/selectedBg|customMessageBg/);
+    expect(focused).toHaveLength(2);
+    expect(focused.at(-1)).toBe("");
+
+    h.press(DOWN);
     const expanded = h.render(240);
-    expect(expanded[0]).toContain("<selectedBg>*<text> Agents 1 </text>");
+    expect(expanded[0]).toContain("*<accent>Agents[1]</accent>*");
+    expect(expanded[0]).not.toMatch(/selectedBg|customMessageBg/);
     expect(expanded[1]).toContain("Sleep then report 1");
+    expect(expanded).toHaveLength(3);
     expect(expanded.at(-1)).toBe("");
     expect(expanded.join("\n")).not.toContain("[Tasks");
   });
@@ -577,7 +587,7 @@ describe("FleetList rendering", () => {
     enterRows(h);
     const lines = h.render(240);
     expect(lines[0]).toContain("enter view");
-    expect(lines.join("\n")).toContain("Agents 1");
+    expect(lines.join("\n")).toContain("Agents[1]");
     expect(lines.join("\n")).not.toContain("main");
     const agentLine = lines.find(l => l.includes("Sleep then report 1"))!;
     expect(agentLine).toContain("●");

@@ -74,6 +74,36 @@ describe("transcript padding", () => {
 		}
 	});
 
+	it("aligns marked assistant lists through rebuilds without changing thinking or tools", () => {
+		initTheme("dark", false);
+		const { Host, host } = fixture();
+		const mark = (source: string) => source.split("\n").map((line, index) => `${index === 0 ? "- " : "  "}${line}`).join("\n");
+		const message = { role: "assistant", content: [
+			{ type: "thinking", thinking: "Thinking.\n\n- Thought" },
+			{ type: "text", text: "Summary.\n\n- Item\n\nFollowing paragraph." },
+		], stopReason: "stop" };
+		const response = new AssistantMessageComponent(message as any, false, undefined, undefined, 0, [mark]);
+		const tool = host.chatContainer.addChild(new Message(0));
+		host.chatContainer.addChild(response);
+		const cleanup = installTranscriptPadding(Host.prototype, true);
+		host.applyRuntimeSettings();
+		const lines = () => response.render(40).map(line => stripAnsi(line).trimEnd());
+		expect(lines()).toContain("   - Item");
+		expect(lines()).toContain("     - Thought"); // Thinking retains its existing layout.
+		expect(lines()).toContain("   Following paragraph.");
+		response.updateContent(message as any, true);
+		expect(lines()).toContain("   - Item");
+		host.changeSetting(0);
+		expect(lines()).toContain("   - Item");
+		response.invalidate();
+		expect(lines()).toContain("   - Item");
+		expect(tool.outputPad).toBe(1);
+		cleanup();
+		expect(Object.hasOwn(response, "updateContent")).toBe(false);
+		expect(lines()).toContain("    - Item"); // Original rendering and native padding are restored.
+		expect(tool.outputPad).toBe(0);
+	});
+
 	it("skips child-session registration without acquiring ownership or a shutdown callback", async () => {
 		const pi = { on: vi.fn() };
 		registerTranscriptPadding(pi as any, true);

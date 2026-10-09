@@ -1,5 +1,6 @@
 import { InteractiveMode, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { inChildSessionContext } from "./unified-subagents/child-context.js";
+import { alignAssistantLists } from "./assistant-list-alignment.js";
 
 export const TOOLKIT_OUTPUT_PADDING_X = 1;
 const PATCH = Symbol.for("pi-toolkit.transcript-padding.v1");
@@ -42,6 +43,29 @@ function attach(instance: RuntimeObject): Undo | undefined {
 	const patchChild = (child: RuntimeObject) => {
 		if (!child || typeof child !== "object" || seen.has(child)) return;
 		seen.add(child);
+		if (child.constructor?.name === "AssistantMessageComponent"
+			&& typeof child.updateContent === "function" && canShadow(child, "updateContent")) {
+			const own = Object.getOwnPropertyDescriptor(child, "updateContent");
+			const original = child.updateContent;
+			const align = () => {
+				for (const block of child.contentContainer?.children ?? []) {
+					// Thinking is wrapped in MouseRegion; tools are separate transcript children.
+					if (block.constructor?.name === "Markdown") alignAssistantLists(block);
+				}
+			};
+			const wrapper = function (this: RuntimeObject, ...args: any[]) {
+				const result = original.apply(this, args);
+				align();
+				return result;
+			};
+			Object.defineProperty(child, "updateContent", { configurable: true, writable: true, value: wrapper });
+			undos.push(() => {
+				if (child.updateContent !== wrapper) return;
+				restore(child, "updateContent", own);
+				child.invalidate?.();
+			});
+			// setOutputPad below rebuilds these blocks through the wrapped updateContent.
+		}
 		if (typeof child.setOutputPad === "function" && canShadow(child, "setOutputPad")) {
 			const own = Object.getOwnPropertyDescriptor(child, "setOutputPad");
 			const original = child.setOutputPad;

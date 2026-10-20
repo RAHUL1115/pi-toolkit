@@ -33,6 +33,13 @@ function fixture() {
 }
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
+function economyPrompt(f: ReturnType<typeof fixture>, messageType = "user") {
+  const event = { messageType, systemPrompt: "Base", systemPromptOptions: { sections: {} as Record<string, string> } };
+  expect(f.handlers.get("before_agent_start")(event)).toBeUndefined();
+  expect(event.systemPromptOptions).not.toHaveProperty("forceSystemPrompt");
+  return event.systemPromptOptions.sections["economy-reading-policy"];
+}
+
 function expectPrefix(result: any, source: string, start = 1) {
   const text = textOf(result);
   const prefix = text.split("\n\n[Showing lines")[0];
@@ -160,24 +167,23 @@ describe("minimal economy result adapter", () => {
     expect(result.details.extra).toBe("kept");
   });
   it("keeps prompt guidance byte-for-byte identical across on/off toggles", async () => {
-    const f = fixture(); const before = f.handlers.get("before_agent_start");
-    const added = before({ systemPrompt: "Base" });
-    expect(added.systemPrompt).toBe(`Base\n\n${ECONOMY_SYSTEM_GUIDANCE}`);
-    expect(before({ systemPrompt: added.systemPrompt })).toBeUndefined();
+    const f = fixture();
+    const added = economyPrompt(f);
+    expect(added).toBe(ECONOMY_SYSTEM_GUIDANCE);
+    expect(economyPrompt(f, "custom")).toBe(added);
     for (const phrase of ["narrow", "multiple files", 'subagent_type="bulk-reader"', "explicit paths and a precise question", "relevant source chunks", "complete exact file", "not an exact read", "[Showing lines"]) expect(ECONOMY_SYSTEM_GUIDANCE).toContain(phrase);
     expect(ECONOMY_SYSTEM_GUIDANCE).not.toMatch(/economy allow|TOOL METADATA|response budget/);
     expect(ECONOMY_SYSTEM_GUIDANCE).toContain("when economy is enabled");
     expect(ECONOMY_SYSTEM_GUIDANCE).toContain("when disabled, native limits apply");
-    await f.command("off"); expect(before({ systemPrompt: "Base" })).toEqual(added);
-    expect(before({ systemPrompt: added.systemPrompt })).toBeUndefined();
-    await f.command("on"); expect(before({ systemPrompt: "Base" })).toEqual(added);
-    f.handlers.get("session_before_switch")(); expect(before({ systemPrompt: "Base" })).toEqual(added);
+    await f.command("off"); expect(economyPrompt(f)).toBe(added);
+    await f.command("on"); expect(economyPrompt(f)).toBe(added);
+    f.handlers.get("session_before_switch")(); expect(economyPrompt(f)).toBe(added);
   });
   it("reports reads shortened, bytes withheld and approximate tokens without claiming net savings", async () => {
     const f = fixture();
     const first = await f.call();
     const removed = Buffer.byteLength(textOf(first.nativeResult)) - Buffer.byteLength(textOf(first.result));
-    const before = f.handlers.get("before_agent_start")({ systemPrompt: "Base" }).systemPrompt;
+    const before = economyPrompt(f);
     expect(removed).toBeGreaterThan(0);
     await f.command("stats");
     let stats = f.ctx.ui.notify.mock.lastCall![0];
@@ -192,7 +198,7 @@ describe("minimal economy result adapter", () => {
     stats = f.ctx.ui.notify.mock.lastCall![0];
     expect(stats).toContain("Reads shortened: 1");
     expect(stats).toContain(`Bytes withheld: ${removed.toLocaleString()}`);
-    expect(f.handlers.get("before_agent_start")({ systemPrompt: "Base" }).systemPrompt).toBe(before);
+    expect(economyPrompt(f)).toBe(before);
     await f.command("on");
     const second = await f.call();
     const total = removed + Buffer.byteLength(textOf(second.nativeResult)) - Buffer.byteLength(textOf(second.result));
@@ -202,7 +208,7 @@ describe("minimal economy result adapter", () => {
     f.handlers.get("session_before_switch")();
     await f.command("stats");
     expect(f.ctx.ui.notify.mock.lastCall![0]).toContain("Reads shortened: 2");
-    expect(f.handlers.get("before_agent_start")({ systemPrompt: "Base" }).systemPrompt).toBe(before);
+    expect(economyPrompt(f)).toBe(before);
   });
   it("reports toggle state and callable bulk usage accounting", async () => {
     const f = fixture(); expect(typeof f.accountUsage).toBe("function");

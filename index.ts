@@ -353,12 +353,8 @@ function registerCompactTools(
 	const cwd = process.cwd();
 	let outputPad = settings.customStyling ? TOOLKIT_OUTPUT_PADDING_X : loadOutputPad();
 	type GroupRenderers = Pick<ToolDefinition<any, any, CompactState>, "renderShell" | "renderCall" | "renderResult">;
-	// Pi 1.1 can override rendering without replacing a tool's execution/schema.
-	const rendererApi = pi as ExtensionAPI & {
-		registerToolRenderer?: (resolver: (name: string, next: () => GroupRenderers | undefined) => GroupRenderers | undefined) => void;
-	};
-	const supported = new Set(["read", "bash", "bash_output", "bash_stop", "edit", "write", "grep", "find", "ls"]);
-	if (rendererApi.registerToolRenderer) supported.add("codemode");
+	// Rendering-only overrides preserve native execution, schemas, and tool exposure.
+	const supported = new Set(["read", "bash", "bash_output", "bash_stop", "edit", "write", "grep", "find", "ls", "codemode"]);
 	const calls = new Map<string, GroupCall>();
 	const groups = new Map<string, ToolGroup>();
 	const shells = new Map<string, Container>();
@@ -595,8 +591,7 @@ function registerCompactTools(
 	const renderersFor = (toolName: string): GroupRenderers => ({
 		renderShell: "self",
 		renderCall(args, theme, context) {
-			// Pi 1.1 supplies outputPad; older SDK types do not declare it.
-			const nativePadding = (context as typeof context & { outputPad?: number }).outputPad;
+			const nativePadding = context.outputPad;
 			if (!settings.customStyling && nativePadding !== undefined) outputPad = nativePadding;
 			const callArgs = args as Args;
 			detail = context.expanded ? "expanded" : "collapsed";
@@ -619,7 +614,7 @@ function registerCompactTools(
 			return shell;
 		},
 		renderResult(result, { isPartial }, theme, context) {
-			const nativePadding = (context as typeof context & { outputPad?: number }).outputPad;
+			const nativePadding = context.outputPad;
 			if (!settings.customStyling && nativePadding !== undefined) outputPad = nativePadding;
 			detail = context.expanded ? "expanded" : "collapsed";
 			const call = context.state.call ?? calls.get(context.toolCallId);
@@ -643,7 +638,7 @@ function registerCompactTools(
 		pi.registerTool({ ...tool, ...renderersFor(tool.name) });
 	}
 	const codemodeRenderers = renderersFor("codemode");
-	rendererApi.registerToolRenderer?.((name, next) => name === "codemode" ? codemodeRenderers : next());
+	pi.registerToolRenderer((name, next) => name === "codemode" ? codemodeRenderers : next());
 
 	const repaint = (): void => {
 		for (const group of groups.values()) {
@@ -807,12 +802,7 @@ function registerFinalResponseTracking(pi: ExtensionAPI): void {
 }
 
 function registerTranscriptMarkers(pi: ExtensionAPI, settings: Settings): void {
-	const register = (pi as unknown as {
-		registerMarkdownTransformer?: (
-			transformer: (markdown: string, context: { messageType: string; availableWidth: number }) => string,
-		) => void;
-	}).registerMarkdownTransformer;
-	register?.((markdown, context) => {
+	pi.registerMarkdownTransformer((markdown, context) => {
 		if (!settings.customStyling) return markdown;
 		if (context.messageType === "user") return markMarkdown(markdown, "›");
 		if (context.messageType === "assistant-thinking") return markMarkdown(compactThinkingSummaries(markdown), "◦");

@@ -103,6 +103,21 @@ describe("integrated goals", () => {
     });
   });
 
+  it("handles a Pi 1.2+ custom-triggered idle turn without activating Goal mode", async () => {
+    await withSession(async (session, faux) => {
+      const errors: unknown[] = [];
+      session.extensionRunner!.onError(error => errors.push(error));
+      faux.setResponses(["Acknowledged the background completion."]);
+      await session.sendCustomMessage({
+        customType: "background-task-completed", content: "Background task completed.", display: false,
+      }, { triggerTurn: true });
+      await session.waitForIdle();
+      expect(errors).toEqual([]);
+      expect(latestGoal(session.sessionManager)).toBeUndefined();
+      expect(session.messages.filter(message => message.role === "assistant")).toHaveLength(1);
+    });
+  });
+
   it("rejects completion outside Goal mode without creating a Goal", async () => {
     await withSession(async (session, faux) => {
       faux.setResponses([

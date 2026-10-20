@@ -84,6 +84,7 @@ export class BackgroundTaskViewer {
 	private cachedOutput: string[] = [];
 	private outputStart = 0;
 	private following = true;
+	private outputFocused = false;
 	private readonly unsubscribe: Array<() => void> = [];
 
 	constructor(
@@ -119,6 +120,7 @@ export class BackgroundTaskViewer {
 		const id = index >= 0 ? tasks[index]?.id : undefined;
 		this.selectedIndex = Math.max(0, index);
 		if (id !== this.selectedId) {
+			this.outputFocused = false;
 			this.selectedId = id;
 			this.following = true;
 			this.outputStart = 0;
@@ -204,34 +206,44 @@ export class BackgroundTaskViewer {
 	}
 
 	handleInput(data: string): void {
+		const tasks = this.tasks.list();
+		this.syncTasks(tasks);
+		if (matchesKey(data, "escape") && this.outputFocused) {
+			this.outputFocused = false;
+			this.following = true;
+			this.armed = undefined;
+			this.loadOutput();
+			this.tui.requestRender();
+			return;
+		}
 		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c") || matchesKey(data, "q")) {
 			this.dispose();
 			this.done(undefined);
 			return;
 		}
-		const tasks = this.tasks.list();
-		this.syncTasks(tasks);
 		const selectedTask = tasks.find((task) => task.id === this.selectedId);
-		if (matchesKey(data, "up")) {
-			this.select(tasks, this.selectedIndex - 1);
+		if (matchesKey(data, "enter") && selectedTask) {
+			this.outputFocused = true;
+			this.armed = undefined;
+			this.loadOutput();
+		} else if (matchesKey(data, "up")) {
+			if (this.outputFocused) this.scrollOutput(-1);
+			else this.select(tasks, this.selectedIndex - 1);
 		} else if (matchesKey(data, "down")) {
-			this.select(tasks, this.selectedIndex + 1);
-		} else if (matchesKey(data, "k") || matchesKey(data, "ctrl+alt+up")) {
-			this.scrollOutput(-1);
-		} else if (matchesKey(data, "j") || matchesKey(data, "ctrl+alt+down")) {
-			this.scrollOutput(1);
-		} else if (matchesKey(data, "u") || matchesKey(data, "alt+up") || matchesKey(data, "pageUp")) {
-			this.scrollOutput(-PREVIEW_LINES);
-		} else if (matchesKey(data, "d") || matchesKey(data, "alt+down") || matchesKey(data, "pageDown")) {
-			this.scrollOutput(PREVIEW_LINES);
-		} else if (matchesKey(data, "ctrl+up") || matchesKey(data, "home") || matchesKey(data, "g")) {
-			this.following = false;
-			this.outputStart = 0;
-			this.armed = undefined;
-		} else if (matchesKey(data, "ctrl+down") || matchesKey(data, "end") || matchesKey(data, "shift+g")) {
-			this.following = true;
-			this.outputStart = Math.max(0, this.cachedOutput.length - PREVIEW_LINES);
-			this.armed = undefined;
+			if (this.outputFocused) this.scrollOutput(1);
+			else this.select(tasks, this.selectedIndex + 1);
+		} else if (matchesKey(data, "home")) {
+			if (this.outputFocused) {
+				this.following = false;
+				this.outputStart = 0;
+				this.armed = undefined;
+			} else this.select(tasks, 0);
+		} else if (matchesKey(data, "end")) {
+			if (this.outputFocused) {
+				this.following = true;
+				this.loadOutput();
+				this.armed = undefined;
+			} else this.select(tasks, tasks.length - 1);
 		} else if (matchesKey(data, "x") && selectedTask?.status === "running") {
 			this.armOrRun({ kind: "stop", id: selectedTask.id, key: "x" }, () => this.tasks.stop(selectedTask.id));
 		} else if (matchesKey(data, "shift+c") && tasks.some((task) => task.status !== "running")) {
@@ -276,21 +288,25 @@ export class BackgroundTaskViewer {
 		}
 		lines.push(separator);
 		const selectedTask = tasks.find((task) => task.id === this.selectedId);
-		if (selectedTask) {
-			const lastPage = Math.max(0, this.cachedOutput.length - PREVIEW_LINES);
-			this.outputStart = this.following ? lastPage : Math.min(this.outputStart, lastPage);
-			const preview = this.cachedOutput.slice(this.outputStart, this.outputStart + PREVIEW_LINES);
-			const position = this.cachedOutput.length > 0
-				? `${this.outputStart + 1}-${this.outputStart + preview.length}/${this.cachedOutput.length}`
-				: "0/0";
-			lines.push(row(`${this.theme.bold("Output preview")}  ${this.theme.fg("dim", `${selectedTask.id} · ${position} · ${this.following ? "following tail" : "paused"}`)}`));
-			if (preview.length === 0) lines.push(row(this.theme.fg("muted", "(no output yet)")));
-			else for (const line of preview) lines.push(row(this.theme.fg("muted", line)));
-			lines.push(separator);
+		const lastPage = Math.max(0, this.cachedOutput.length - PREVIEW_LINES);
+		this.outputStart = this.following ? lastPage : Math.min(this.outputStart, lastPage);
+		const preview = this.cachedOutput.slice(this.outputStart, this.outputStart + PREVIEW_LINES);
+		const position = this.cachedOutput.length > 0
+			? `${this.outputStart + 1}-${this.outputStart + preview.length}/${this.cachedOutput.length}`
+			: "0/0";
+		const outputState = selectedTask
+			? `${selectedTask.id} · ${position} · ${this.following ? "following tail" : "paused"}${this.outputFocused ? " · output focus" : ""}`
+			: "No task selected";
+		lines.push(row(`${this.theme.bold("Output preview")}  ${this.theme.fg("dim", outputState)}`));
+		for (let i = 0; i < PREVIEW_LINES; i++) {
+			const content = preview[i] ?? (i === 0 && preview.length === 0
+				? selectedTask ? "(no output yet)" : "(no task selected)" : "");
+			lines.push(row(this.theme.fg("muted", content)));
 		}
-		let help = process.platform === "darwin"
-			? "↑↓ tasks · k/j lines · u/d pages · g/G top/end · x stop · c/Del clear · C clear finished"
-			: "↑↓ tasks · Ctrl+Alt+↑↓ lines · Alt+↑↓ pages · Ctrl+↑↓ top/end · x stop · c/Del clear · C clear finished";
+		lines.push(separator);
+		let help = this.outputFocused
+			? "↑↓ lines · Home/End top/tail · Esc tasks · x stop · c/Del clear · C clear finished"
+			: "↑↓ tasks · Home/End first/last · Enter output · Esc close · x stop · c/Del clear · C clear finished";
 		if (this.armed?.kind === "stop") help = "Press x again to stop this task (output will be retained)";
 		else if (this.armed?.kind === "clear") help = `Press ${this.armed.key === "delete" ? "Delete" : "c"} again to clear this finished task`;
 		else if (this.armed?.kind === "clear-all") help = "Press C again to clear all finished tasks";

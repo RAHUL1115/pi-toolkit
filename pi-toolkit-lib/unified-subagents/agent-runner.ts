@@ -221,20 +221,18 @@ export function parseExtSelectors(entries: string[]): {
  *   - `turn_end` re-narrows the ACTIVE set. pi emits `turn_end` immediately before
  *     `prepareNextTurn` re-snapshots `agent.state.tools`, and session listeners run
  *     synchronously, so the narrow lands in time for turns 2..N.
- *   - `beforeToolCall` blocks out-of-scope calls. Turn 1 cannot be narrowed at all:
+ *   - A child-owned inline `tool_call` handler blocks direct AND nested calls.
+ *     Turn 1 cannot be narrowed at all:
  *     `before_agent_start` fires INSIDE `prompt()` and may widen the tool set, but
  *     `createContextSnapshot()` freezes that turn's tools immediately after — there
  *     is no hook in between. A call-time check is the only correct guard there.
  *
- * Both are installed on the session and deliberately NOT unsubscribed: they must
- * outlive the `runAgent` call so resumed/steered turns stay scoped. pi's `dispose()`
- * clears `_eventListeners`, so they die with the session rather than leaking.
+ * The live predicate is shared by the inline policy and declaration reconciliation.
+ * Both outlive `runAgent` so resumed/steered turns stay scoped, and die with the child.
  *
- * Only meaningful when extensions are loaded — under `noExtensions`/`isolated` the
- * static `allowedToolNames` allowlist already gates the registry itself.
+ * Under `noExtensions`/`isolated`, static registry gating also applies.
  */
-export function installExtensionToolScope(
-  session: AgentSession,
+function createExtensionToolScope(
   ctx: {
     loader: DefaultResourceLoader;
     toolNames: string[];
@@ -244,7 +242,7 @@ export function installExtensionToolScope(
     /** Injected custom tools to keep active despite registry and active-set scoping. */
     readmitToolNames: Set<string>;
   },
-): void {
+) {
   const { loader, toolNames, disallowedSet, extNames, narrowing, readmitToolNames } = ctx;
 
   // The names allowed right now. Mirrors the `ext:` opt-in flip: when any `ext:`
@@ -273,10 +271,32 @@ export function installExtensionToolScope(
     return keep;
   };
 
+  return inScope;
+}
+
+/** Reconcile declarations without promoting callable-only or opt-in tools. */
+export function installExtensionToolScope(
+  session: AgentSession,
+  inScope: () => Set<string>,
+  loader: DefaultResourceLoader,
+): void {
   const renarrow = () => {
     const allowed = inScope();
-    const next = session.getAllTools().map((t) => t.name).filter((n) => allowed.has(n));
     const current = session.getActiveToolNames();
+    const defaultInactive = new Set<string>();
+    for (const extension of loader.getExtensions().extensions) {
+      for (const [name, tool] of extension.tools) {
+        if (tool.definition.defaultActive === false) defaultInactive.add(name);
+      }
+    }
+    const active = new Set(current);
+    const next = session.getAllTools().filter((tool) =>
+      allowed.has(tool.name) && tool.exposure !== "hidden" &&
+      (active.has(tool.name) || (
+        (tool.exposure === undefined || tool.exposure === "direct" || tool.exposure === "model-only") &&
+        !defaultInactive.has(tool.name)
+      )),
+    ).map((tool) => tool.name);
     // setActiveToolsByName unconditionally rebuilds the system prompt, so skip
     // the no-op that steady-state turns would otherwise pay for every turn.
     if (next.length !== current.length || next.some((n, i) => n !== current[i])) {
@@ -292,16 +312,6 @@ export function installExtensionToolScope(
     if (event.type === "turn_end") renarrow();
   });
 
-  const priorBeforeToolCall = session.agent.beforeToolCall;
-  session.agent.beforeToolCall = async (context, signal) => {
-    if (!inScope().has(context.toolCall.name)) {
-      return {
-        block: true,
-        reason: `Tool "${context.toolCall.name}" is not available to this subagent.`,
-      };
-    }
-    return priorBeforeToolCall?.(context, signal);
-  };
 }
 
 /** Default max turns. undefined = unlimited (no turn limit). */
@@ -628,6 +638,10 @@ export async function runAgent(
   // must compare against this, not the surviving set (absence from survivors is
   // an exclude *succeeding*).
   let discoveredNames: Set<string> | undefined;
+  // Child-owned policy, not a user extension: keep it even under user filtering.
+  const scopeExtensionName = "subagent-tool-scope";
+  const scopeExtensionPath = `<inline:${scopeExtensionName}>`;
+  let inScope: () => Set<string> = () => new Set(); // fail closed until construction completes
   const extensionsOverride: ((base: LoadExtensionsResult) => LoadExtensionsResult) | undefined =
     noExtensions || (loadAll && !hasExcludes)
       ? undefined
@@ -636,6 +650,7 @@ export async function runAgent(
           return {
             ...base,
             extensions: base.extensions.filter((e) => {
+              if (e.path === scopeExtensionPath) return true;
               const canons = extensionCanonicalNames(e.path);
               if (canons.some((n) => excludeNames.has(n))) return false; // exclude wins
               return loadAll || canons.some((n) => keepNames.has(n));
@@ -648,6 +663,19 @@ export async function runAgent(
     agentDir,
     noExtensions,
     additionalExtensionPaths,
+    // Isolated/no-extension children retain a fully static registry allowlist
+    // and load no extensions at all, including this internal live-scope policy.
+    extensionFactories: noExtensions ? [] : [{
+      name: scopeExtensionName,
+      hidden: true,
+      factory: (pi) => {
+        pi.on("tool_call", (event) => {
+          if (!inScope().has(event.toolName)) {
+            return { block: true, reason: `Tool "${event.toolName}" is not available to this subagent.` };
+          }
+        });
+      },
+    }],
     extensionsOverride,
     noSkills,
     noPromptTemplates: true,
@@ -798,8 +826,8 @@ export async function runAgent(
   //     `disallowedTools`) as `excludeTools`, which pi re-applies on every
   //     registry refresh;
   //   - enforce `ext:` narrowing on the ACTIVE set via the live `inScope()`
-  //     predicate installed after bind — the active set is what the LLM sees,
-  //     so a registry tool that is never activated is invisible and uncallable.
+  //     predicate shared with the inline tool_call policy. Callable-only tools
+  //     need that policy even when absent from the model's declarations.
   //
   // `noExtensions`/`isolated` keeps the historical static allowlist: nothing
   // async can appear there, and a hard registry gate is the correct boundary.
@@ -889,6 +917,9 @@ export async function runAgent(
     sessionOpts.thinkingLevel = thinkingLevel;
   }
 
+  // Install the live predicate before binding: session_start handlers can execute
+  // nested tools too. The inline policy lives with the child across resume/steer.
+  inScope = createExtensionToolScope({ loader, toolNames, disallowedSet, extNames, narrowing, readmitToolNames });
   const { session } = await runInChildSessionContext(() => createAgentSession(sessionOpts));
 
   const baseSessionName = agentConfig?.name ?? type;
@@ -898,8 +929,8 @@ export async function runAgent(
 
   // Bind extensions so that session_start fires and extensions can initialize
   // (e.g. loading credentials, setting up state). Tool gating already happened
-  // at session construction via the `tools:` allowlist above — no separate
-  // post-bind filter is needed. All ExtensionBindings fields are optional.
+  // at construction for static scopes; the inline tool_call policy guards live
+  // scopes, including nested execution during startup. All bindings are optional.
   await session.bindExtensions({
     onError: (err) => {
       options.onToolActivity?.({
@@ -916,14 +947,7 @@ export async function runAgent(
   // handled below by re-deriving scope from the loader's live extension maps —
   // `registerTool` writes into those same maps, so late arrivals are judged too.
   if (!noExtensions) {
-    installExtensionToolScope(session, {
-      loader,
-      toolNames,
-      disallowedSet,
-      extNames,
-      narrowing,
-      readmitToolNames,
-    });
+    installExtensionToolScope(session, inScope, loader);
   }
 
   options.onSessionCreated?.(session);

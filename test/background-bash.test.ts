@@ -1,7 +1,7 @@
 import { access, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BackgroundBashManager, registerBackgroundBash } from "../pi-toolkit-lib/background-bash.ts";
 import { BackgroundTaskViewer, type BackgroundTaskController, type BackgroundTaskItem } from "../pi-toolkit-lib/background-task-viewer.ts";
 
@@ -171,7 +171,7 @@ describe("background bash", () => {
 		viewer.dispose();
 	});
 
-	it("scrolls and follows five-line output while keeping selection by task ID", async () => {
+	it("focuses output with Enter and restores live tail-following with Escape", async () => {
 		const now = Date.now();
 		const controller = new ViewerController([
 			{ id: "bash-1", command: "first", status: "running", startedAt: now },
@@ -182,38 +182,26 @@ describe("background bash", () => {
 		const viewer = new BackgroundTaskViewer({ requestRender: () => {} } as any, controller, testTheme(), () => {});
 
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 4-8/8 · following tail");
-		viewer.handleInput("\u001b[1;7A");
+		viewer.handleInput("\r");
+		viewer.handleInput("\u001b[A");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 3-7/8 · paused");
 		controller.outputs.set("bash-1", "1\n2\n3\n4\n5\n6\n7\n8\n9");
 		controller.emitOutput("bash-1");
 		controller.emitOutput("bash-1");
 		await new Promise((resolve) => setTimeout(resolve, 125));
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 3-7/9 · paused");
-		viewer.handleInput("\u001b[1;5B");
+		viewer.handleInput("\u001b[F");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
-		viewer.handleInput("\u001b[1;5A");
+		viewer.handleInput("\u001b[H");
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
-		viewer.handleInput("\u001b[1;3B");
+		viewer.handleInput("\u001b[B");
+		expect(viewer.render(90).join("\n")).toContain("bash-1 · 2-6/9 · paused");
+		viewer.handleInput("\u001b"); // Return to list, not close.
 		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
-		viewer.handleInput("\u001b[1;3A");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
-		viewer.handleInput("\u001b[1;5B");
-		viewer.handleInput("\u001b[1;7A");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 4-8/9 · paused");
-		viewer.handleInput("\u001b[1;7B");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
-		viewer.handleInput("k");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 4-8/9 · paused");
-		viewer.handleInput("j");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
-		viewer.handleInput("u");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
-		viewer.handleInput("d");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
-		viewer.handleInput("g");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 1-5/9 · paused");
-		viewer.handleInput("G");
-		expect(viewer.render(90).join("\n")).toContain("bash-1 · 5-9/9 · following tail");
+		controller.outputs.set("bash-1", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10");
+		controller.emitOutput("bash-1");
+		await new Promise((resolve) => setTimeout(resolve, 125));
+		expect(viewer.render(90).join("\n")).toContain("bash-1 · 6-10/10 · following tail");
 
 		controller.items.reverse();
 		controller.emitList();
@@ -221,6 +209,75 @@ describe("background bash", () => {
 		viewer.handleInput("\u001b[A");
 		expect(viewer.render(90).join("\n")).toContain("bash-2 · 2-6/6 · following tail");
 		viewer.dispose();
+	});
+
+	it("reserves five output rows even with empty or short output", () => {
+		const controller = new ViewerController([{ id: "bash-1", command: "silent", status: "running", startedAt: Date.now() }]);
+		const viewer = new BackgroundTaskViewer({ requestRender: () => {} } as any, controller, testTheme(), () => {});
+		try {
+			const empty = viewer.render(100);
+			const header = empty.findIndex((line) => line.includes("Output preview"));
+			expect(empty[header + 1]).toContain("(no output yet)");
+			for (let i = 2; i <= 5; i++) expect(empty[header + i]).toMatch(/^│\s+│$/);
+			expect(empty[header + 6]).toContain("─");
+			controller.outputs.set("bash-1", "one\ntwo");
+			viewer.handleInput("\r"); // Focus refreshes output immediately.
+			const short = viewer.render(100);
+			expect(short.length).toBe(empty.length);
+			expect(short[header + 1]).toContain("one");
+			expect(short[header + 2]).toContain("two");
+			for (let i = 3; i <= 5; i++) expect(short[header + i]).toMatch(/^│\s+│$/);
+		} finally { viewer.dispose(); }
+	});
+
+	it("keeps list and output focus separate and ignores removed scroll shortcuts", () => {
+		const controller = new ViewerController([
+			{ id: "bash-1", command: "first", status: "running", startedAt: Date.now() },
+			{ id: "bash-2", command: "second", status: "running", startedAt: Date.now() },
+		]);
+		controller.outputs.set("bash-1", "1\n2\n3\n4\n5\n6\n7\n8");
+		controller.outputs.set("bash-2", "a\nb\nc\nd\ne\nf");
+		const done = vi.fn();
+		const viewer = new BackgroundTaskViewer({ requestRender: () => {} } as any, controller, testTheme(), done);
+		try {
+			expect(viewer.render(120).join("\n")).toContain("Enter output");
+			viewer.handleInput("\u001b[B");
+			expect(viewer.render(120).join("\n")).toContain("bash-2 · 2-6/6 · following tail");
+			viewer.handleInput("\u001b[H"); // List Home selects first task, not output top.
+			expect(viewer.render(120).join("\n")).toContain("bash-1 · 4-8/8 · following tail");
+			viewer.handleInput("\r");
+			viewer.handleInput("\u001b[A");
+			expect(viewer.render(120).join("\n")).toContain("bash-1 · 3-7/8 · paused");
+			for (const key of ["j", "k", "u", "d", "g", "G", "\u001b[5~", "\u001b[6~", "\u001b[1;3A", "\u001b[1;7B", "\u001b[1;5A"]) {
+				viewer.handleInput(key);
+				expect(viewer.render(120).join("\n")).toContain("bash-1 · 3-7/8 · paused");
+			}
+			viewer.handleInput("\u001b");
+			expect(done).not.toHaveBeenCalled();
+			expect(viewer.render(120).join("\n")).toContain("bash-1 · 4-8/8 · following tail");
+			viewer.handleInput("\u001b[F");
+			expect(viewer.render(120).join("\n")).toContain("bash-2 · 2-6/6 · following tail");
+			viewer.handleInput("\u001b");
+			expect(done).toHaveBeenCalledOnce();
+		} finally { viewer.dispose(); }
+	});
+
+	it("returns focus to the list when a focused task disappears", () => {
+		const controller = new ViewerController([
+			{ id: "bash-1", command: "first", status: "running", startedAt: Date.now() },
+			{ id: "bash-2", command: "second", status: "running", startedAt: Date.now() },
+		]);
+		const viewer = new BackgroundTaskViewer({ requestRender: () => {} } as any, controller, testTheme(), () => {});
+		try {
+			viewer.handleInput("\r");
+			controller.items.shift();
+			controller.emitList();
+			expect(viewer.render(120).join("\n")).toContain("Enter output");
+			expect(viewer.render(120).join("\n")).toContain("Output preview  bash-2");
+			controller.items = [];
+			controller.emitList();
+			expect(viewer.render(120).join("\n")).toContain("No background tasks");
+		} finally { viewer.dispose(); }
 	});
 
 	it("refreshes the new selection when the previous task already has a pending paint", async () => {

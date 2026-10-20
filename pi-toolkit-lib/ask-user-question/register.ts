@@ -102,24 +102,24 @@ Always use this tool instead of asking questions in plain text — it provides a
         return new TruncatedText(theme.fg("warning", "Cancelled"), 0, 0);
       }
 
-      // One TruncatedText per question — each line item truncated independently
+      // Keep the summary compact; expansion preserves multiline answers and notes.
       const box = new Box(0, 0);
+      const ResultText = options.expanded ? Text : TruncatedText;
+      const display = (value: string) => options.expanded ? value : value.replace(/\r\n|[\r\n]/g, " ");
+      box.addChild(new ResultText(theme.fg("text", "User answered the questions:"), 0, 0));
       for (const [index, q] of details.questions.entries()) {
         const answer = details.answers[q.question] ?? "(no answer)";
-        const ResultText = options.expanded ? Text : TruncatedText;
         box.addChild(
           new ResultText(
-            theme.fg("success", "✓ ") +
-              theme.fg("accent", `${q.header}: `) +
-              theme.fg("text", answer),
+            theme.fg("muted", `${index === 0 ? "└" : " "} · ${display(q.question)} → ${display(answer)}`),
             0,
             0,
           ),
         );
         const note = details.answerDetails?.find((detail) => detail.questionIndex === index)?.note;
-        if (note) box.addChild(new ResultText(theme.fg("muted", `  Note: ${note}`), 0, 0));
+        if (note) box.addChild(new ResultText(theme.fg("muted", `    Note: ${display(note)}`), 0, 0));
       }
-      if (details.globalNote) box.addChild(new (options.expanded ? Text : TruncatedText)(theme.fg("muted", `Global note: ${details.globalNote}`), 0, 0));
+      if (details.globalNote) box.addChild(new ResultText(theme.fg("muted", `  Global note: ${display(details.globalNote)}`), 0, 0));
       return box;
     },
   });

@@ -66,8 +66,13 @@ export function registerEconomy(pi: ExtensionAPI) {
   });
   pi.on("before_agent_start", (event) => {
     // Keep guidance invariant across toggles to avoid changing the prompt-cache prefix.
-    if (event.systemPrompt.includes(ECONOMY_SYSTEM_GUIDANCE)) return;
-    return { systemPrompt: `${event.systemPrompt}\n\n${ECONOMY_SYSTEM_GUIDANCE}` };
+    // Respect an opaque prompt supplied by another extension, but keep normal
+    // sessions structured so tool/loadout changes can use Pi's prompt deltas.
+    if (event.systemPromptOptions.forceSystemPrompt !== undefined) {
+      if (event.systemPrompt.includes(ECONOMY_SYSTEM_GUIDANCE)) return;
+      return { systemPrompt: `${event.systemPrompt}\n\n${ECONOMY_SYSTEM_GUIDANCE}` };
+    }
+    event.systemPromptOptions.sections["economy-reading-policy"] = ECONOMY_SYSTEM_GUIDANCE;
   });
   pi.on("session_before_switch", () => { enabled = true; });
   pi.on("tool_result", (event) => {

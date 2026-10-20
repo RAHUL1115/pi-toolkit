@@ -64,7 +64,7 @@ Paths use Pi's configured agent directory, normally `~/.pi/agent`.
 
 ## Migration checklist
 
-1. Install Toolkit and its locked dependencies; use Pi 0.99.1 as the current tested baseline.
+1. Install Toolkit and its locked dependencies; use Pi 1.3.0 as the current tested baseline.
 2. Inspect `pi list` and global/project Pi package and explicit extension declarations.
 3. Remove standalone `npm:@narumitw/pi-goal` declarations and any separately loaded unified-subagent entrypoint once Toolkit is installed. Avoid loading both copies through `pi -e` or another discovery path.
 4. Preserve `pi-goal.json`, agent definitions, subagent settings, and session files. No state deletion is required. An installed but unregistered npm package is not the same as an actively loaded extension.
@@ -72,6 +72,26 @@ Paths use Pi's configured agent directory, normally `~/.pi/agent`.
 6. Reload Pi, then check `/goal`, `/agents`, `/agents-options`, and `/tasks`. Reload stops Toolkit's current background tasks; finish or intentionally stop them first.
 
 Toolkit's package entrypoint does not automatically remove standalone registrations. New Pi sessions do not inherit another session's Goal merely because they use the same working directory.
+
+## Pi 1.3 compatibility
+
+Toolkit's development Pi packages are pinned together to 1.3.0; host-provided Pi packages remain wildcard peers as recommended by Pi's package contract. Older host versions are not the current verification baseline.
+
+- Grouped `codemode` output uses the native rendering-only resolver. It does not replace codemode execution, schemas, exposure, or loadout preparation.
+- Economy guidance and active dollar skills use named `systemPromptOptions.sections`, preserving Pi's structured prompt replay and incremental tool/loadout updates. If another extension explicitly forces an opaque prompt, Toolkit appends to that prompt instead. Clearing skills removes the active-skill section.
+- `before_agent_start` now also runs for idle custom-message turns. Instruction injection applies to both trigger kinds; it does not assume that every event has a user `prompt`.
+- A child-owned inline `tool_call` policy enforces subagent scope for both model-issued calls and nested `ctx.executeTool()` calls, independently of user extension filters. Reconciliation preserves deferred/codemode exposure and `defaultActive: false`; explicit activation of allowed optional tools still works. An active-tool list alone is not an execution boundary. Extension loading and tool scoping are not an operating-system sandbox.
+- Child SDK sessions do not automatically acquire the CLI's built-in MCP, codemode, or tool-search extensions. Toolkit does not silently enable these capabilities as part of this baseline update.
+
+The integration scripts can also run against an installed Pi rather than the local development dependencies:
+
+```bash
+export PI_CODING_AGENT_HOST_ENTRY=/absolute/path/to/pi-coding-agent/dist/index.js
+node test/grouped-tools.mjs
+node test/economy-integration.mjs
+```
+
+The grouped-renderer script exercises the real loader/resolver chain and startup theme validation. The economy script checks native/structured read results, nested codemode calls, both run-trigger kinds, and incremental system-prompt sections. These are automated SDK/rendering checks, not a claim that every interactive TUI path has been manually exercised.
 
 ## Maintenance and verification
 

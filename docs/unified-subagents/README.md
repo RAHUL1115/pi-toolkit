@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/8685261b-9338-4fea-8dfe-1c590d5df543
 - **Parallel background agents** — spawn multiple agents that run concurrently with automatic queuing (configurable concurrency limit, default 10) and smart group join (consolidated notifications)
 - **Single activity UI** — FleetView is the only live progress surface while enabled, avoiding duplicate above-editor status
 - **FleetView** — tabbed running Tasks and running/queued Agents lists below the editor; agent rows include tool uses, turn/token/context usage, elapsed time, and current activity, while task rows open the existing `/tasks` detail view
-- **Full-screen conversation viewer** — every harness opens in the same full-terminal, live-scrolling transcript viewer with thinking, bounded tool-argument previews, visible tool errors, steering, stopping, Up/Down line scrolling, Alt+Up/Down page scrolling, Ctrl+Up/Down transcript jumps, and Ctrl+C/Esc/q close behavior
+- **Full-screen conversation viewer** — every harness opens in the same full-terminal, live-scrolling transcript viewer with thinking, bounded tool-argument previews, visible tool errors, steering, stopping, Up/Down line scrolling, Home/End transcript jumps, and Ctrl+C/Esc/q close behavior
 - **One configurable Light model** — a fast, low-cost model for straightforward low-intelligence work, with selectable thinking that defaults to `low`; task nature selects `Explore` or `general-purpose`
 - **Custom agent types** — define agents in `.pi/agents/<name>.md` or `.agents/agents/<name>.md` (project) or globally, with YAML frontmatter including model, tools, harness, and Claude Code-compatible colored name badges
 - **Nested subagents (Pi harness)** — opt-in delegation with ownership-scoped tools, depth limits, cleanup, and usage rollup; native harnesses reject tracked nesting explicitly
@@ -137,7 +137,7 @@ Only running tasks and running/queued top-level agents appear. Agent rows are or
 
 #### Conversation navigation
 
-In the full-screen agent viewer, Up/Down or k/j scroll one line, Alt+Up/Down or u/d scroll one page, and Ctrl+Up/Down or g/G jump to the transcript start/end. Mac hints show the modifier-free alternatives, which do not require Option/Meta terminal configuration. Page Up/Page Down and Home/End remain aliases. While the steering composer is open, letters remain normal text.
+In the full-screen agent viewer, Up/Down scroll one line and Home/End jump to the transcript start/end. These are the only output navigation bindings: page keys, letter aliases, and modifier-arrow aliases are not used. On compact Mac keyboards, Fn+Left/Fn+Right sends Home/End. Escape closes the viewer; existing tool expansion, stopping, display mode, and steering actions remain available. While the steering composer is open, normal text editing applies.
 
 ### Agent mentions
 
@@ -955,7 +955,7 @@ src/
     agent-widget.ts       # Retained compatibility widget; suppressed by Pi Toolkit
     fleet-list.ts         # Shared tabbed Tasks/Agents activity surface below the editor
     conversation-viewer.ts # Live conversation overlay for viewing agent sessions
-    viewer-keys.ts        # Viewer scroll keys resolved through user keybindings
+    viewer-keys.ts        # Fixed arrow scroll keys; configurable tool expansion
     agent-mention.ts      # `@` roster (running, resumable, and startable agents) + popup rows
     schedule-menu.ts      # /agents → Scheduled jobs submenu
     select-item.ts        # Collision-safe ctx.ui.select wrapper (numbered rows)

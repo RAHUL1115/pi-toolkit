@@ -2,6 +2,7 @@
   "autoSessionTitles": true,
   "compactTools": true,
   "dollarSkills": true,
-  "toolView": "one line",
+  "customStyling": true,
+  "toolView": "list",
   "liteReasoning": "low"
 }

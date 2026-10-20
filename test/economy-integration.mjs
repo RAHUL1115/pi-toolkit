@@ -11,7 +11,7 @@ const entry = process.env.PI_CODING_AGENT_HOST_ENTRY ?? import.meta.resolve("@ea
 const codingAgentEntry = entry.startsWith("file:") ? new URL(entry) : pathToFileURL(entry);
 const sdk = await import(codingAgentEntry);
 const { loadExtensions } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
-const { buildSystemPrompt } = await import(new URL("./core/system-prompt.js", codingAgentEntry));
+const { buildSystemPrompt, buildSystemPromptState, diffSystemPromptSections } = await import(new URL("./core/system-prompt.js", codingAgentEntry));
 const require = createRequire(codingAgentEntry);
 function dependency(name) {
 	const root = require.resolve.paths(name).map((path) => join(path, name, "dist"))
@@ -43,12 +43,32 @@ for (const compactTools of [true, false]) {
 		const runner = new sdk.ExtensionRunner(extensions, runtime, root, sdk.SessionManager.inMemory(root), {});
 		const hookErrors = [];
 		runner.onError((error) => hookErrors.push(error));
-		const promptResult = await runner.emitBeforeAgentStart("Inspect related files", undefined, { forceSystemPrompt: "Existing instructions", cwd: root });
+		const promptResult = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "Inspect related files" }, { forceSystemPrompt: "Existing instructions", cwd: root });
 		const systemPrompt = buildSystemPrompt(promptResult.systemPromptOptions);
 		assert(systemPrompt.startsWith("Existing instructions"));
 		assert(systemPrompt.includes("Economy reading policy"));
 		assert(systemPrompt.includes('subagent_type="bulk-reader"'));
 		assert(systemPrompt.includes("not file content"));
+		// Pi 1.2+ dispatches the same setup for background completion/Goal turns.
+		const customPrompt = await runner.emitBeforeAgentStart({
+			messageType: "custom",
+			message: { role: "custom", customType: "background-task", content: "Task completed", display: false, timestamp: Date.now() },
+		}, { forceSystemPrompt: "Existing instructions", cwd: root });
+		assert.equal(buildSystemPrompt(customPrompt.systemPromptOptions), systemPrompt, "custom-message turns retain economy guidance");
+		const structuredPrompt = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "Read files" }, {
+			cwd: root, selectedTools: ["read"], toolSnippets: { read: "Read files" },
+		});
+		assert.equal(structuredPrompt.systemPromptOptions.forceSystemPrompt, undefined, "economy preserves native prompt sections");
+		const state = buildSystemPromptState(structuredPrompt.systemPromptOptions);
+		assert.equal(state.content, "");
+		assert(state.sections["economy-reading-policy"].includes("Economy reading policy"));
+		const widenedPrompt = await runner.emitBeforeAgentStart({ messageType: "custom", message: {
+			role: "custom", customType: "background-task", content: "Task completed", display: false, timestamp: Date.now(),
+		} }, { cwd: root, selectedTools: ["read", "grep"], toolSnippets: { read: "Read files", grep: "Search files" } });
+		const widened = buildSystemPromptState(widenedPrompt.systemPromptOptions);
+		const delta = diffSystemPromptSections(state.sections, widened.sections);
+		assert(delta.tools.includes("grep"), "native tool changes remain incremental system-prompt deltas");
+		assert.equal(delta["economy-reading-policy"], undefined, "stable guidance is not resent in the delta");
 		const definition = extension.tools.get("read")?.definition ?? sdk.createReadToolDefinition(root);
 		const read = sdk.wrapRegisteredTool({ definition, extensionPath: join(root, "index.ts") }, runner);
 		let sequence = 0;
@@ -118,10 +138,10 @@ for (const compactTools of [true, false]) {
 		const native = await definition.execute("native", { path: "large.txt" }, undefined, undefined, runner.createToolContext("native"));
 		assert.equal(textOf(off.result), textOf(native));
 		assert.equal(off.result.structuredContent, native.structuredContent);
-		const offPrompt = await runner.emitBeforeAgentStart("Read files", undefined, { forceSystemPrompt: "Existing instructions", cwd: root });
+		const offPrompt = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "Read files" }, { forceSystemPrompt: "Existing instructions", cwd: root });
 		assert.equal(buildSystemPrompt(offPrompt.systemPromptOptions), systemPrompt, "economy off preserves the exact system prompt");
 		await extension.commands.get("economy").handler("on", runner.createCommandContext());
-		const onPrompt = await runner.emitBeforeAgentStart("Read files", undefined, { forceSystemPrompt: "Existing instructions", cwd: root });
+		const onPrompt = await runner.emitBeforeAgentStart({ messageType: "user", prompt: "Read files" }, { forceSystemPrompt: "Existing instructions", cwd: root });
 		assert.equal(buildSystemPrompt(onPrompt.systemPromptOptions), systemPrompt, "economy on preserves the exact system prompt");
 		assert(textOf((await invoke({ path: "large.txt" })).result).includes("16.0KB economy limit"));
 		assert.deepEqual(hookErrors, [], "real extension dispatcher didn't swallow hook failures");

@@ -54,6 +54,11 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
         loaderExtensionsRef.current = { extensions: [], errors: [], runtime: {} };
         return;
       }
+      for (const input of this.opts.extensionFactories ?? []) {
+        await input.factory({ on: (event: string, handler: any) => {
+          if (event === "tool_call") scopeToolCall = handler;
+        } });
+      }
       if (this.opts.extensionsOverride) {
         loaderExtensionsRef.current = this.opts.extensionsOverride(loaderExtensionsRef.current);
       }
@@ -142,6 +147,7 @@ import { compileJsonSchema } from "../../pi-toolkit-lib/unified-subagents/workfl
 
 /** The most recent session built by `createSession` — read by `lastToolsPassed()`. */
 let lastSession: ReturnType<typeof createSession>["session"] | undefined;
+let scopeToolCall: (event: { toolName: string }) => any;
 
 function createSession(finalText: string) {
   const listeners: Array<(event: any) => void> = [];
@@ -176,7 +182,8 @@ function createSession(finalText: string) {
     }),
     // pi's Agent; `beforeToolCall` is an optional, assignable hook the scope
     // installer wraps to block out-of-scope calls on turn 1.
-    agent: { beforeToolCall: undefined } as {
+    // Test-only adapter for existing scope assertions; production uses tool_call.
+    agent: { beforeToolCall: async (context: any) => scopeToolCall({ toolName: context.toolCall.name }) } as {
       beforeToolCall?: (context: any, signal?: any) => Promise<any>;
     },
     setSessionName: vi.fn(),
@@ -791,7 +798,7 @@ function withExtensions(spec: Record<string, string[]>) {
   loaderExtensionsRef.current = {
     extensions: Object.entries(spec).map(([path, tools]) => ({
       path,
-      tools: new Map(tools.map((n) => [n, {}])),
+      tools: new Map(tools.map((n) => [n, { definition: {} }])),
     })),
     errors: [],
     runtime: {},
@@ -1548,7 +1555,7 @@ describe("agent-runner async extension tool registration", () => {
   function registerLate(extPath: string, toolName: string) {
     const ext = loaderExtensionsRef.current.extensions.find((e) => e.path === extPath);
     if (!ext) throw new Error(`no loaded extension at ${extPath}`);
-    ext.tools.set(toolName, {});
+    ext.tools.set(toolName, { definition: {} });
   }
 
   function setup(o: { builtinToolNames?: string[]; extSelectors?: string[] } = {}) {
@@ -1657,6 +1664,7 @@ describe("agent-runner async extension tool registration", () => {
     await runAgent(ctx, "Explore", "go", { pi });
     await session.agent.beforeToolCall?.({ toolCall: { name: "foo_tool" } });
 
+    expect(session.agent.beforeToolCall).toBe(prior);
     expect(prior).toHaveBeenCalledTimes(1);
   });
 
@@ -1696,7 +1704,7 @@ describe("agent-runner async extension tool registration", () => {
     // asynchronously, so there is no active-set narrowing to maintain.
     expect(createAgentSession.mock.calls[0][0].tools).toEqual(["read"]);
     expect(session.setActiveToolsByName).not.toHaveBeenCalled();
-    expect(session.agent.beforeToolCall).toBeUndefined();
+    // Static registry gating needs no active-set reconciliation.
   });
 });
 

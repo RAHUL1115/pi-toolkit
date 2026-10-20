@@ -153,6 +153,7 @@ export default function registerSkillLoader(pi: ExtensionAPI): void {
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {
+		delete event.systemPromptOptions.sections["pi-toolkit-active-skills"];
 		if (loaded.size === 0) return;
 		const available = commandMap(pi);
 		const blocks: string[] = [];
@@ -170,7 +171,11 @@ export default function registerSkillLoader(pi: ExtensionAPI): void {
 			}
 		}
 		if (blocks.length === 0) return;
-		return { systemPrompt: `${event.systemPrompt}\n\n${blocks.join("\n\n")}` };
+		const instructions = blocks.join("\n\n");
+		if (event.systemPromptOptions.forceSystemPrompt !== undefined) {
+			return { systemPrompt: `${event.systemPrompt}\n\n${instructions}` };
+		}
+		event.systemPromptOptions.sections["pi-toolkit-active-skills"] = instructions;
 	});
 
 	pi.registerCommand("skills-clear", {

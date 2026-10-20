@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 const extensionRoot = mkdtempSync(join(dirname(fileURLToPath(import.meta.url)), ".pi-toolkit-test-"));
@@ -21,14 +21,21 @@ writeFileSync(join(extensionRoot, "pi-toolkit.json"), JSON.stringify({
 	dollarSkills: true,
 }, null, 2));
 
-const codingAgentEntry = import.meta.resolve("@earendil-works/pi-coding-agent");
-const { loadExtensions, loadExtensionFromFactory } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
-const { getAgentDir, createEventBus, createExtensionRuntime } = await import("@earendil-works/pi-coding-agent");
-const { getMarkdownTheme, initTheme, theme: globalTheme } = await import(new URL("./modes/interactive/theme/theme.js", codingAgentEntry));
+// Also verify the actual installed host, not only the local development SDK:
+// PI_CODING_AGENT_HOST_ENTRY=/absolute/path/to/pi-coding-agent/dist/index.js node test/grouped-tools.mjs
+const entry = process.env.PI_CODING_AGENT_HOST_ENTRY ?? import.meta.resolve("@earendil-works/pi-coding-agent");
+const codingAgentEntry = entry.startsWith("file:") ? new URL(entry) : pathToFileURL(entry);
+const { loadExtensions } = await import(new URL("./core/extensions/loader.js", codingAgentEntry));
+const { getAgentDir, ExtensionRunner, SessionManager } = await import(codingAgentEntry);
+const { getMarkdownTheme, initTheme, theme: globalTheme, setThemeJsonValidator, loadThemeFromPath } = await import(new URL("./modes/interactive/theme/theme.js", codingAgentEntry));
+const { validateThemeJson } = await import(new URL("./modes/interactive/theme/theme-schema.js", codingAgentEntry));
 const { ToolExecutionComponent } = await import(new URL("./modes/interactive/components/tool-execution.js", codingAgentEntry));
-const { Markdown, getKeybindings } = await import("@earendil-works/pi-tui");
+const { Markdown, getKeybindings } = await import(pathToFileURL(createRequire(codingAgentEntry).resolve("@earendil-works/pi-tui")));
 const extensionPath = join(extensionRoot, "index.ts");
 
+// Pi 1.2+ validates package themes on startup; exercise the CLI's strict validator.
+setThemeJsonValidator(validateThemeJson);
+assert.equal(loadThemeFromPath(join(sourceRoot, "themes", "nord-frost.json")).name, "nord-frost");
 initTheme("dark");
 const { extensions, errors } = await loadExtensions([extensionPath], extensionRoot);
 assert.deepEqual(errors, []);
@@ -662,20 +669,17 @@ for (const outputPad of [0, 1, 0]) {
 	assert(lines.includes(`${" ".repeat(outputPad)}└ bash output`));
 }
 
-// Exercise Pi 1.1's rendering-only resolver even on the older development SDK.
+// Use the real loader/runner resolver chain, rather than mocking the API.
 // Codemode must join the same group without replacing its native tool definition.
-const { createJiti } = createRequire(codingAgentEntry)("jiti");
-const factory = await createJiti(extensionPath).import(extensionPath, { default: true });
-const resolvers = [];
-const resolverExtension = await loadExtensionFromFactory(
-	(pi) => factory({ ...pi, registerToolRenderer: (resolver) => resolvers.push(resolver) }),
-	extensionRoot, createEventBus(), createExtensionRuntime(), extensionPath,
-);
-assert.equal(resolvers.length, 1);
+const resolverLoaded = await loadExtensions([extensionPath], extensionRoot);
+assert.deepEqual(resolverLoaded.errors, []);
+const resolverExtension = resolverLoaded.extensions[0];
+assert.equal(resolverExtension.toolRenderers.length, 1);
+const resolverRunner = new ExtensionRunner(resolverLoaded.extensions, resolverLoaded.runtime, extensionRoot, SessionManager.inMemory(extensionRoot), {});
 assert(!resolverExtension.tools.has("codemode"), "codemode execution/schema/loadout must remain native");
 const fallback = { renderShell: "default" };
-assert.equal(resolvers[0]("other-tool", () => fallback), fallback);
-const codemode = resolvers[0]("codemode", () => fallback);
+assert.equal(resolverRunner.resolveToolRenderers("other-tool", () => fallback), fallback);
+const codemode = resolverRunner.resolveToolRenderers("codemode", () => fallback);
 assert.equal(codemode.renderShell, "self");
 const scriptArgs = { code: 'const value = await tools.read({ path: "demo.txt" });\ntext(value);' };
 const mixedSpecs = [

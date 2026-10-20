@@ -8,6 +8,18 @@ import registerSkillLoader from "../pi-toolkit-lib/skill-loader.js";
 
 type Handler = (event: any, ctx: any) => any;
 
+async function activeInstructions(handler: Handler, ctx: ExtensionContext, messageType = "user") {
+	const event = {
+		messageType,
+		...(messageType === "user" ? { prompt: "test" } : { message: { customType: "task-completed", content: "done" } }),
+		systemPrompt: "base",
+		systemPromptOptions: { sections: {} as Record<string, string> },
+	};
+	expect(await handler(event, ctx)).toBeUndefined();
+	expect(event.systemPromptOptions).not.toHaveProperty("forceSystemPrompt");
+	return event.systemPromptOptions.sections["pi-toolkit-active-skills"];
+}
+
 function harness(skillFiles: Record<string, string>) {
 	const handlers = new Map<string, Handler[]>();
 	const commands = new Map<string, any>();
@@ -72,7 +84,7 @@ describe("dollar skill loader", () => {
 		const { ctx, notifications } = context();
 		await handlers.get("session_start")![0]({}, ctx);
 
-		expect(await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx)).toBeUndefined();
+		expect(await activeInstructions(handlers.get("before_agent_start")![0], ctx)).toBeUndefined();
 		expect(await handlers.get("input")![0]({ text: "$public-skill $private-skill", source: "interactive" }, ctx))
 			.toEqual({
 				action: "transform",
@@ -80,16 +92,33 @@ describe("dollar skill loader", () => {
 			});
 		expect(entries.at(-1)?.data).toEqual({ loaded: ["public-skill", "private-skill"] });
 
-		const first = await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx);
-		expect(first.systemPrompt).toContain("first public body");
-		expect(first.systemPrompt).toContain("private body");
-		expect(first.systemPrompt).not.toContain("disable-model-invocation");
+		const first = await activeInstructions(handlers.get("before_agent_start")![0], ctx);
+		expect(first).toContain("first public body");
+		expect(first).toContain("private body");
+		expect(first).not.toContain("disable-model-invocation");
+		expect(await activeInstructions(handlers.get("before_agent_start")![0], ctx, "custom")).toBe(first);
 		expect(notifications.at(-1)?.message).toBe("Loaded skills: public-skill, private-skill");
 
 		writeFileSync(publicPath, "---\nname: public-skill\ndescription: test\n---\n\nupdated body\n");
-		const updated = await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx);
-		expect(updated.systemPrompt).toContain("updated body");
-		expect(updated.systemPrompt).not.toContain("first public body");
+		const updated = await activeInstructions(handlers.get("before_agent_start")![0], ctx);
+		expect(updated).toContain("updated body");
+		expect(updated).not.toContain("first public body");
+	});
+
+	it("respects an explicitly forced prompt and removes stale structured skills after clearing", async () => {
+		const { handlers, commands } = harness({ alpha: skill("alpha", "alpha body") });
+		const { ctx } = context();
+		await handlers.get("input")![0]({ text: "$alpha", source: "interactive" }, ctx);
+		const beforeStart = handlers.get("before_agent_start")![0];
+		const forced = { systemPrompt: "opaque parent", systemPromptOptions: { forceSystemPrompt: "opaque parent", sections: {} } };
+		expect((await beforeStart(forced, ctx)).systemPrompt).toContain("opaque parent\n\n<skill");
+		expect((await beforeStart(forced, ctx)).systemPrompt).toContain("alpha body");
+		const event = { systemPrompt: "base", systemPromptOptions: { sections: {} as Record<string, string> } };
+		expect(await beforeStart(event, ctx)).toBeUndefined();
+		expect(event.systemPromptOptions.sections["pi-toolkit-active-skills"]).toContain("alpha body");
+		await commands.get("skills-clear").handler("", ctx);
+		expect(await beforeStart(event, ctx)).toBeUndefined();
+		expect(event.systemPromptOptions.sections).toEqual({});
 	});
 
 	it("does not swallow normal prompts and reports bare or unknown selectors", async () => {
@@ -114,16 +143,16 @@ describe("dollar skill loader", () => {
 		const { ctx } = context(branch);
 		await handlers.get("session_start")![0]({}, ctx);
 
-		const injected = await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx);
-		expect(injected.systemPrompt).toContain("alpha body");
+		const injected = await activeInstructions(handlers.get("before_agent_start")![0], ctx);
+		expect(injected).toContain("alpha body");
 		expect(commands.has("skills")).toBe(false);
 		await commands.get("skills-clear").handler("", ctx);
 		expect(entries.at(-1)?.data).toEqual({ loaded: [] });
-		expect(await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx)).toBeUndefined();
+		expect(await activeInstructions(handlers.get("before_agent_start")![0], ctx)).toBeUndefined();
 
 		const alternate = context([{ type: "custom", customType: "pi-toolkit:skill-loader", data: { loaded: ["alpha"] } }]);
 		await handlers.get("session_tree")![0]({}, alternate.ctx);
-		expect((await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, alternate.ctx)).systemPrompt)
+		expect(await activeInstructions(handlers.get("before_agent_start")![0], alternate.ctx))
 			.toContain("alpha body");
 	});
 
@@ -142,7 +171,7 @@ describe("dollar skill loader", () => {
 
 		expect(await handlers.get("input")![0]({ text: "$missing", source: "interactive" }, ctx))
 			.toEqual({ action: "transform", text: "Follow the active skill instructions now: missing." });
-		expect(await handlers.get("before_agent_start")![0]({ systemPrompt: "base" }, ctx)).toBeUndefined();
+		expect(await activeInstructions(handlers.get("before_agent_start")![0], ctx)).toBeUndefined();
 		expect(notifications.at(-1)?.message).toMatch(/^Could not load skill missing:/);
 	});
 });

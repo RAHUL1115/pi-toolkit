@@ -2,7 +2,7 @@
 
 A local Pi extension that combines session Goals, unified subagents and workflows, background Bash, compact tool rendering, skill shortcuts, editor enhancements, and a rolling usage dashboard.
 
-Toolkit loads through **one extension entrypoint**, `index.ts`. Goals and unified subagents are internal registrations, not separately installed extensions. The current development and regression-test baseline is **Pi 0.99.1**.
+Toolkit loads through **one extension entrypoint**, `index.ts`. Goals and unified subagents are internal registrations, not separately installed extensions. The current development and regression-test baseline is **Pi 1.3.0**.
 
 - [Commands](#commands) and [configuration](#workflow-settings)
 - [Integration architecture, settings ownership, and migration](docs/integration.md)
@@ -91,7 +91,7 @@ Use `/goal <objective>` to activate Goal mode. `/goal` opens its manager and set
 
 `Ctrl+O` uses Pi's configurable `app.tools.expand` action. Toolkit uses **Ctrl+Q** for layout cycling on every platform, without Option/Meta or function-key configuration. The former Alt+O and F6 layout bindings are removed. With Compact tools enabled, Ctrl+Q takes precedence over Pi's default Windows/WSL follow-up shortcut; it cycles the layout instead of queuing a message.
 
-Toolkit viewer navigation also has modifier-free aliases on all platforms: **k/j** scroll lines, **u/d** scroll pages, and **g/G** jump to the top/end. In `/tasks`, Up/Down still selects tasks; k/j scrolls only the selected task's output. In the agent conversation viewer, these aliases apply only outside the steering composer, where letters remain normal text.
+Toolkit output navigation uses **Up/Down** for lines and **Home/End** for the beginning/end on every platform. There are no page, letter, or modified-arrow scroll aliases. On compact Mac keyboards, Fn+Left/Fn+Right sends Home/End. In `/tasks`, Enter focuses the selected task's output; Escape returns to the task list and resumes live tail-following. Agent steering composers keep normal text editing.
 
 ### Delete the previous word
 
@@ -126,7 +126,7 @@ When **Compact tools** is enabled, the toolkit replaces the rendering of these P
 - `find`
 - `ls`
 
-Toolkit's `bash_output` and `bash_stop` also participate in the group, using their task ID as the target. On Pi 1.1+, `codemode` joins the same group through Pi's rendering-only resolver; its native execution, schema, and tool loadout remain unchanged. Older runtimes without that resolver retain native codemode rendering. `bash_jobs` and other custom/unsupported tools keep their normal renderer and break the current group. Task-tool execution and output bounds are unchanged.
+Toolkit's `bash_output` and `bash_stop` also participate in the group, using their task ID as the target. `codemode` joins the same group through Pi's native rendering-only resolver; its native execution, schema, and tool loadout remain unchanged. `bash_jobs` and other custom/unsupported tools keep their normal renderer and break the current group. Task-tool execution and output bounds are unchanged.
 
 ### Group boundaries
 
@@ -194,7 +194,7 @@ The toolkit extends Pi's existing `bash` tool with optional `run_in_background` 
 
 Commands run in the foreground by default. If one is still running after 60 seconds, the toolkit automatically moves it into the background; `Ctrl+B` does the same immediately and preserves its title. Its Bash tool call returns with a session-local task ID such as `bash-1` while the process continues, streaming combined stdout/stderr directly to a temporary log rather than retaining it in session context. Explicit titles name `/tasks` rows; a sanitized, whitespace-normalized command is the fallback. While any are running, the below-editor activity surface exposes a Tasks tab; Toolkit does not customize Pi's footer.
 
-Open `/tasks` for the live task list and selected task's five-line output window. Use Up/Down to select a task, Ctrl+Alt+Up/Down to scroll output one line, Alt+Up/Down to move one page, and Ctrl+Up/Down to jump to the top or resume following the tail. Modifier-free `k`/`j` scroll output lines, `u`/`d` scroll pages, and `g`/`G` jump to top/tail; Mac hints show these keys. Page Up/Page Down and Home/End also remain aliases. Selection follows the task ID when the list changes. Destructive actions require the same key twice: `x x` stops a running task but retains its record and output, `c c` or Delete twice clears a selected finished task, and `C C` clears all finished tasks. Duplicate asynchronous actions are ignored while one is pending. The agent can also use:
+Open `/tasks` for the live task list and selected task's output window, which always reserves five output rows even with no output. Initially the task list has focus: Up/Down selects tasks and Home/End selects the first/last task. Press Enter to focus the selected task's output; Up/Down then scrolls one line and Home/End jumps to the beginning/latest output. Scrolling away from the bottom pauses tail-following; End restores it. Escape from output focus returns to the list and resumes live tail-following while keeping the preview visible and updated. Escape from list focus closes the viewer. Page keys and former letter/modifier scrolling aliases do nothing. Selection follows the task ID when the list changes; if the focused task disappears, focus returns to the list. Destructive actions require the same key twice: `x x` stops a running task but retains its record and output, `c c` or Delete twice clears a selected finished task, and `C C` clears all finished tasks. Duplicate asynchronous actions are ignored while one is pending. The agent can also use:
 
 | Tool | Purpose |
 |---|---|
@@ -222,7 +222,7 @@ The v0.19 upstream integration adds [`SubagentWorkflow`](docs/unified-subagents/
 
 The viewer renders assistant Markdown by default; `m` cycles `off / assistant / all`, persisted as `viewerMarkdown`. Expanded tool results are bounded at 16,000 characters, without changing stored transcripts. `maxConcurrentForeground` adds an optional independent blocking-agent limit (`0` means unlimited); auto-detachment still moves the same live child into background accounting. BOM-prefixed agent files are parsed correctly.
 
-The imported subagent baseline originally required Pi `>=0.84.0`; the complete Toolkit integration is currently developed and tested against Pi **0.99.1**. Older upstream requirements are not a verification claim for all current Toolkit features. The exact upstream update baseline is tracked in [`docs/unified-subagents/UPSTREAM.json`](docs/unified-subagents/UPSTREAM.json); see the [port record](docs/unified-subagents/upstream-v0.19-port.md) before the next upstream comparison.
+The imported subagent baseline originally required Pi `>=0.84.0`; the complete Toolkit integration is currently developed and tested against Pi **1.3.0**. Older upstream requirements are not a verification claim for all current Toolkit features. The exact upstream update baseline is tracked in [`docs/unified-subagents/UPSTREAM.json`](docs/unified-subagents/UPSTREAM.json); see the [port record](docs/unified-subagents/upstream-v0.19-port.md) before the next upstream comparison.
 
 Project agent definitions remain in `.pi/agents/*.md`; project settings remain in `.pi/subagents.json`, with global settings under Pi's normal agent directory. Existing identifiers and persisted data formats are unchanged by the consolidation.
 

@@ -509,10 +509,11 @@ describe("background bash", () => {
 		const calls: Array<{ model: any; request: any; options: any }> = [];
 		ctx.modelRegistry = {
 			find: () => ({ provider: "ptk", id: "lite", api: "pi-virtual" }),
-			getAvailable: () => [{ provider: "test", id: "fast-mini", name: "fast mini" }],
-			complete: async (model: unknown, request: any, options: any) => {
+			getAvailable: () => [],
+			complete: () => { throw new Error("complete cannot route virtual models"); },
+			streamSimple: (model: unknown, request: any, options: any) => {
 				calls.push({ model, request, options });
-				return { content: [{ type: "text", text: '{"extend_seconds":0}' }] };
+				return { result: async () => ({ stopReason: "stop", content: [{ type: "text", text: '{"extend_seconds":0}' }] }) };
 			},
 		};
 		try {
@@ -521,7 +522,7 @@ describe("background bash", () => {
 			expect(calls[0].model).toMatchObject({ provider: "ptk", id: "lite" });
 			expect(calls[0].request.messages).toHaveLength(1);
 			expect(calls[0].request.tools).toBeUndefined();
-			expect(calls[0].options.timeoutMs).toBe(15_000);
+			expect(calls[0].options).toMatchObject({ timeoutMs: 15_000, maxRetries: 0, maxTokens: 80, cacheRetention: "none" });
 			expect(JSON.parse(calls[0].request.messages[0].content[0].text)).toMatchObject({ reviewsUsed: 1, extensions: [] });
 		} finally {
 			await shutdown();
@@ -534,15 +535,88 @@ describe("background bash", () => {
 		ctx.modelRegistry = {
 			find: () => undefined,
 			getAvailable: () => ["gpt-5.6-luna", "gpt-6-luna"].map((id) => ({ provider: "test", id, name: id })),
-			complete: async (model: any) => {
+			streamSimple: (model: any) => {
 				calls.push(model);
-				return { content: [{ type: "text", text: '{"extend_seconds":0}' }] };
+				return { result: async () => ({ stopReason: "stop", content: [{ type: "text", text: '{"extend_seconds":0}' }] }) };
 			},
 		};
 		try {
 			await tools.get("bash").execute("pinned-review", { command: "sleep 30", timeout: 0.05, run_in_background: true }, undefined, undefined, ctx);
 			await waitFor(() => calls.length, (count) => count === 1, "pinned model review");
 			expect(calls[0].id).toBe("gpt-5.6-luna");
+		} finally {
+			await shutdown();
+		}
+	});
+
+	it("keeps a real subprocess alive after a routed deadline extension", async () => {
+		const { ctx, shutdown, tools } = harness();
+		const complete = vi.fn(() => { throw new Error("complete cannot route virtual models"); });
+		const streamSimple = vi.fn(() => ({
+			result: async () => ({ stopReason: "stop", content: [{ type: "text", text: '{"extend_seconds":1}' }] }),
+		}));
+		ctx.modelRegistry = {
+			find: (provider: string, id: string) => provider === "ptk" && id === "lite" ? { provider, id, api: "pi-virtual" } : undefined,
+			getAvailable: () => [],
+			complete,
+			streamSimple,
+		};
+		try {
+			const started = await tools.get("bash").execute("extend-review", {
+				command: "sleep 0.4; printf survived", timeout: 0.05, run_in_background: true,
+			}, undefined, undefined, ctx);
+			const result = await waitFor(
+				() => tools.get("bash_output").execute("extended-output", { job_id: started.details.backgroundJobId }),
+				(value) => value.details.status !== "running",
+				"extended subprocess completion",
+			);
+			expect(result.details).toMatchObject({ status: "exited", exitCode: 0 });
+			expect(result.content[0].text).toContain("survived");
+			expect(result.content[0].text).toContain("extensions: 1 seconds");
+			expect(streamSimple).toHaveBeenCalledOnce();
+			expect(complete).not.toHaveBeenCalled();
+		} finally {
+			await shutdown();
+		}
+	});
+
+	it.each([
+		{ label: "provider error", response: { stopReason: "error", errorMessage: "provider quota exhausted", content: [] }, error: "provider quota exhausted" },
+		{ label: "aborted response", response: { stopReason: "aborted", errorMessage: "provider request cancelled", content: [{ type: "text", text: '{"extend_seconds":1}' }] }, error: "provider request cancelled" },
+		{ label: "error without details", response: { stopReason: "error", content: [] }, error: "error" },
+		{ label: "empty reply", response: { stopReason: "stop", content: [{ type: "text", text: "  " }] }, error: "empty" },
+		{ label: "malformed reply", response: { stopReason: "stop", content: [{ type: "text", text: "private raw reply: not JSON" }] }, error: "invalid JSON" },
+		{ label: "explicit decline", response: { stopReason: "stop", content: [{ type: "text", text: '{"extend_seconds":0}' }] }, error: undefined },
+	])("stops without grace after a deadline review $label", async ({ response, error }) => {
+		const { ctx, shutdown, tools } = harness();
+		// Both methods return the same response so error handling is tested independently of routing.
+		ctx.modelRegistry = {
+			find: () => ({ provider: "ptk", id: "lite", api: "pi-virtual" }),
+			getAvailable: () => [],
+			complete: async () => response,
+			streamSimple: () => ({ result: async () => response }),
+		};
+		try {
+			const started = await tools.get("bash").execute("failed-review", {
+				command: "sleep 2; printf should-not-finish", timeout: 0.05, run_in_background: true,
+			}, undefined, undefined, ctx);
+			const result = await waitFor(
+				() => tools.get("bash_output").execute("failed-review-output", { job_id: started.details.backgroundJobId }),
+				(value) => value.details.status !== "running",
+				"declined or failed review termination",
+			);
+			expect(result.details.status).toBe("timed_out");
+			const text = result.content[0].text;
+			expect(text).toContain("extensions: none seconds");
+			expect(text).not.toContain("should-not-finish");
+			if (error) {
+				expect(text).toContain("Timeout review failed:");
+				expect(text).toContain(error);
+				expect(text).not.toContain("Unexpected");
+				expect(text).not.toContain("private raw reply");
+			} else {
+				expect(text).not.toContain("Error:");
+			}
 		} finally {
 			await shutdown();
 		}

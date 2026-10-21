@@ -754,12 +754,21 @@ export function registerBackgroundBash(pi: ExtensionAPI, cwd = process.cwd(), au
 		const model = registry.find(LITE_MODEL_PROVIDER, LITE_MODEL_ID)
 			?? resolveLiteModel(available, preference());
 		if (!model) return undefined;
-		const response = await registry.complete(model, {
+		const response = await registry.streamSimple(model, {
 			systemPrompt: `You only decide whether an already-running Bash command needs more time. No tools are available. Return ONLY JSON: {"extend_seconds": number} to continue or {"extend_seconds": 0} to stop. Base the decision on command, elapsed time, recent output, and review history. Use newOutputBytes to detect progress since the previous review; lack of output alone is not proof of a hang. Avoid repeated extensions without evidence of progress. Choose 1-${MAX_EXTENSION_SECONDS} seconds for a useful extension. At most ${MAX_TIMEOUT_EXTENSIONS} extensions are allowed.`,
 			messages: [{ role: "user", content: [{ type: "text", text: JSON.stringify(details) }], timestamp: Date.now() }],
-		}, { maxTokens: 80, timeoutMs: 15_000, maxRetries: 0, cacheRetention: "none" });
+		}, { maxTokens: 80, timeoutMs: 15_000, maxRetries: 0, cacheRetention: "none" }).result();
+		if (response.stopReason === "error" || response.stopReason === "aborted") {
+			throw new Error(response.errorMessage || `Bash timeout reviewer ended with ${response.stopReason}`);
+		}
 		const text = response.content.filter((part): part is { type: "text"; text: string } => part.type === "text").map((part) => part.text).join("").trim();
-		const decision = JSON.parse(text) as { extend_seconds?: unknown };
+		if (!text) throw new Error("Bash timeout reviewer returned empty text");
+		let decision: { extend_seconds?: unknown };
+		try {
+			decision = JSON.parse(text);
+		} catch {
+			throw new Error("Bash timeout reviewer returned invalid JSON");
+		}
 		return typeof decision.extend_seconds === "number" ? decision.extend_seconds : undefined;
 	};
 	const titleContext = new AsyncLocalStorage<{ title?: string }>();

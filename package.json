@@ -14,8 +14,9 @@
   ],
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
-    "test": "node test/grouped-tools.mjs && node test/economy-integration.mjs && vitest run",
+    "test": "node test/grouped-tools.mjs && node test/economy-integration.mjs && node test/analytics-integration.mjs && vitest run",
     "test:watch": "vitest",
+    "analytics": "node dist/pi-toolkit-lib/analytics/cli.js",
     "test:e2e": "vitest run test/unified-subagents/e2e --reporter=verbose",
     "typecheck": "tsc --noEmit",
     "lint": "biome check index.ts pi-toolkit-lib/ test/",

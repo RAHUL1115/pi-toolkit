@@ -6,6 +6,7 @@ Toolkit loads through **one extension entrypoint**, `index.ts`. Goals and unifie
 
 - [Commands](#commands) and [configuration](#workflow-settings)
 - [Integration architecture, settings ownership, and migration](docs/integration.md)
+- [Local analytics, privacy, coverage, and review-only improvements](docs/analytics.md)
 - [Source provenance](PROVENANCE.md)
 
 ## Features
@@ -50,6 +51,7 @@ If migrating from standalone Goal or unified-subagent extensions, remove their o
 |---|---|
 | `/ptk` | Configure workflow features and the `ptk/lite` model |
 | `/ptk-usage` | Rolling 1-day, 7-day, and 30-day usage tabs across Pi sessions |
+| `/ptk-analytics status\|enable\|disable\|import\|report` | Opt-in local tool/skill observations, failure categories, and evidence-backed review-only proposals |
 | `/tasks` | View, stop, and clear background tasks |
 | `/agents` | View running and completed agents |
 | `/agents-options` | Manage agent types, schedules, running jobs, and settings |
@@ -394,6 +396,7 @@ Costs are recorded Pi/provider estimates, not subscription bills. Missing costs 
 | Agent definitions | `.pi/agents/*.md` (project), `<getAgentDir()>/agents/*.md` (global) |
 | Subagent settings | `.pi/subagents.json` (project), `<getAgentDir()>/subagents.json` (global) |
 | Background tasks | In-memory task records and temporary output files; not restart-persistent |
+| Local analytics (opt-in) | `<getAgentDir()>/analytics`: minimized event segments, consent, health/import coverage, and generated reports; no raw transcripts |
 
 These stores remain separate. `/ptk` does not edit Goal or subagent settings. See [settings ownership](docs/integration.md#settings-and-state-ownership) for the integration boundaries.
 

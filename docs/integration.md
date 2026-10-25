@@ -15,6 +15,7 @@ This is the current local integration guide. Start with the [Toolkit README](../
 | Questions and context handoff | `ask-user-question/`, `compact-context.ts` | Internal registrars |
 | Light-model alias and automatic titles | `session-title.ts` | Toolkit registers `ptk/lite`; titles are optional |
 | Usage dashboard | `usage*.ts` | Toolkit UI and read-only accounting; Pi owns the footer |
+| Local analytics | `analytics/` | Opt-in event collection/import/reporting; no accounting, model calls, or automatic harness edits |
 
 `goals-upstream.d.ts` describes the upstream generated TypeScript entrypoint for the compiler; it does not replace Goal's runtime. Goal commands, limits, settings, and persistence retain upstream behavior.
 
@@ -31,6 +32,7 @@ Hermes Memory and the MCP adapter are separate extension packages, not Toolkit d
 - `/goal`: Goal manager/settings; `/goal <objective>` starts explicit Goal mode.
 - `/economy on|off|stats`: default-on 16 KiB read-content cap; off leaves native reads unchanged. Conditional reading guidance stays identical across toggles, and bulk-reader is available in both modes.
 - `/ptk-usage`: rolling usage dashboard.
+- `/ptk-analytics status|enable|disable|import|report`: [local analytics](analytics.md), failure categories and review-only proposals. Collection is opt-in; enable/disable affects other running processes after reload.
 
 The `Agent` tool is ordinary delegation. `SubagentWorkflow` requires explicit user opt-in. `context_tool` requires its exact name in the latest user request. Goal tools being visible does not mean Goal mode is active: completion, blocking, and waiting require the current Goal contract and matching ID.
 
@@ -59,6 +61,7 @@ Paths use Pi's configured agent directory, normally `~/.pi/agent`.
 | Titles/skills | `pi-toolkit:auto-title`, `pi-toolkit:skill-loader` session entries | Generated-title provenance and branch-local skill activation |
 | Background Bash | In-memory records and temporary logs | Current runtime; orderly reload/shutdown stops tasks |
 | Usage | Native session ledger scan and live UI snapshots | No additional persistent accounting store |
+| Analytics | Agent-directory `analytics/config.json`, event segments, import/health metadata and reports | Local opt-in observations; separate from usage accounting and Toolkit workflow settings |
 
 `/ptk` does not merge or edit the Goal/subagent stores. Goal menu saves apply immediately; manual Goal settings edits apply at session start or `/reload`. Toolkit leaves Pi's built-in footer unchanged; Goal publishes its `goal` status through Pi's native extension status API.
 

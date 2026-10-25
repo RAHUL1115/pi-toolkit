@@ -30,6 +30,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import registerAskUserQuestion from "./pi-toolkit-lib/ask-user-question/register.js";
+import registerAnalytics from "./pi-toolkit-lib/analytics/register.js";
 import { registerBackgroundBash } from "./pi-toolkit-lib/background-bash.js";
 import registerCompactContext from "./pi-toolkit-lib/compact-context.js";
 import { installWordDeleteAlias, maintainWordDeleteAlias } from "./pi-toolkit-lib/editor-keybindings.js";
@@ -832,6 +833,7 @@ export default function piToolkit(pi: ExtensionAPI): void {
 	if (settings.autoSessionTitles) registerAutomaticSessionTitles(pi, litePreference);
 	registerUnifiedSubagents(pi, backgroundBash.taskController, settings.customStyling);
 	registerGoals(pi);
+	registerAnalytics(pi);
 
 	pi.registerCommand("ptk", {
 		description: "Configure Pi Toolkit workflow features and Lite model",

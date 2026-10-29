@@ -40,6 +40,7 @@ import registerAutomaticSessionTitles, { registerLiteVirtualModel } from "./pi-t
 import { liteModelSetting } from "./pi-toolkit-lib/lite-model-setting.js";
 import { LITE_REASONING_LEVELS, loadToolkitSettings, saveToolkitSettings, type LiteReasoningEffort, type ToolkitSettings as Settings } from "./pi-toolkit-lib/toolkit-settings.js";
 import registerSkillLoader from "./pi-toolkit-lib/skill-loader.js";
+import registerToolReliability from "./pi-toolkit-lib/tool-reliability.js";
 import { registerTranscriptPadding, TOOLKIT_OUTPUT_PADDING_X } from "./pi-toolkit-lib/transcript-padding.js";
 import { registerUnifiedSubagents } from "./pi-toolkit-lib/unified-subagents/index.js";
 
@@ -816,6 +817,7 @@ function registerTranscriptMarkers(pi: ExtensionAPI, settings: Settings): void {
 }
 
 export default function piToolkit(pi: ExtensionAPI): void {
+	registerToolReliability(pi);
 	registerAskUserQuestion(pi);
 	registerCompactContext(pi);
 	registerUsage(pi);

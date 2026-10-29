@@ -47,6 +47,7 @@ for (const compactTools of [true, false]) {
 		const systemPrompt = buildSystemPrompt(promptResult.systemPromptOptions);
 		assert(systemPrompt.startsWith("Existing instructions"));
 		assert(systemPrompt.includes("Economy reading policy"));
+		assert.equal(systemPrompt.split("## Tool reliability policy").length - 1, 1, "reliability policy appears once in forced prompts");
 		assert(systemPrompt.includes('subagent_type="bulk-reader"'));
 		assert(systemPrompt.includes("not file content"));
 		// Pi 1.2+ dispatches the same setup for background completion/Goal turns.
@@ -62,6 +63,7 @@ for (const compactTools of [true, false]) {
 		const state = buildSystemPromptState(structuredPrompt.systemPromptOptions);
 		assert.equal(state.content, "");
 		assert(state.sections["economy-reading-policy"].includes("Economy reading policy"));
+		assert(state.sections["pi-toolkit-tool-reliability"].includes("## Tool reliability policy"));
 		const widenedPrompt = await runner.emitBeforeAgentStart({ messageType: "custom", message: {
 			role: "custom", customType: "background-task", content: "Task completed", display: false, timestamp: Date.now(),
 		} }, { cwd: root, selectedTools: ["read", "grep"], toolSnippets: { read: "Read files", grep: "Search files" } });
@@ -69,6 +71,7 @@ for (const compactTools of [true, false]) {
 		const delta = diffSystemPromptSections(state.sections, widened.sections);
 		assert(delta.tools.includes("grep"), "native tool changes remain incremental system-prompt deltas");
 		assert.equal(delta["economy-reading-policy"], undefined, "stable guidance is not resent in the delta");
+		assert.equal(delta["pi-toolkit-tool-reliability"], undefined, "reliability policy remains stable across trigger/tool changes");
 		const definition = extension.tools.get("read")?.definition ?? sdk.createReadToolDefinition(root);
 		const read = sdk.wrapRegisteredTool({ definition, extensionPath: join(root, "index.ts") }, runner);
 		let sequence = 0;

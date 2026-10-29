@@ -76,6 +76,14 @@ Paths use Pi's configured agent directory, normally `~/.pi/agent`.
 
 Toolkit's package entrypoint does not automatically remove standalone registrations. New Pi sessions do not inherit another session's Goal merely because they use the same working directory.
 
+## Tool reliability guidance
+
+Toolkit adds a fixed **Tool reliability policy** to the system prompt on every `before_agent_start`, including background/custom-message turns. It covers path discovery, schema-aware arguments, exact edits, evidence-based bounded recovery, project-pinned dependencies, safe timeout handling, nested failure status, and verification. The source of truth is `pi-toolkit-lib/tool-reliability.ts`.
+
+The policy uses the named `pi-toolkit-tool-reliability` section in normal sessions and appends once when another extension forces an opaque prompt. Its text does not depend on analytics, counters, compact rendering, or economy mode. It applies to sessions that load Toolkit; it does not inject extensions into isolated children or configure external harnesses. It is model guidance, not a retry engine, permission boundary, or fix for tool implementation defects. No commands are intercepted and no automatic retries, installs, or analytics-driven prompt rewrites are introduced.
+
+Reload Toolkit to activate changed guidance for the next agent run. Finish or intentionally stop active background tasks before `/reload`.
+
 ## Pi 1.3 compatibility
 
 Toolkit's development Pi packages are pinned together to 1.3.0; host-provided Pi packages remain wildcard peers as recommended by Pi's package contract. Older host versions are not the current verification baseline.
